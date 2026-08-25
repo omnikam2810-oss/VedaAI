@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["sharp", "@google/genai", "pdf-lib"],
+  transpilePackages: ["react-pdf", "pdfjs-dist"],
+  images: {
+    formats: ["image/avif", "image/webp"],
+  },
+  turbopack: {
+    root: process.cwd(),
+  },
 };
 
 export default nextConfig;

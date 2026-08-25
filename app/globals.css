@@ -1,26 +1,142 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --veda-orange: #ff6b4a;
+  --veda-orange-deep: #f04b2b;
+  --veda-orange-soft: #ffe6de;
+  --veda-orange-title: #ffd8ce;
+  --veda-black: #1c1c1c;
+  --veda-ink: #1a1a1a;
+  --veda-muted: #8b8b8b;
+  --veda-line: #e6e6e6;
+  --veda-bg: #ececec;
+  --veda-green: #22c55e;
+  --veda-green-soft: #dcfce7;
+  --veda-red: #ef4444;
+  --veda-red-soft: #fee2e2;
+  --background: #ececec;
+  --foreground: #1a1a1a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-veda-orange: var(--veda-orange);
+  --color-veda-black: var(--veda-black);
+  --font-sans: var(--font-inter);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--veda-bg);
+  color: var(--veda-ink);
+  font-family: var(--font-inter), "Segoe UI", sans-serif;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--veda-orange);
+  outline-offset: 2px;
+}
+
+@keyframes sparkle {
+  0%,
+  100% {
+    transform: scale(0.86) rotate(0deg);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.08) rotate(12deg);
+    opacity: 1;
+  }
+}
+
+.sparkle-1 {
+  animation: sparkle 1.6s ease-in-out infinite;
+}
+.sparkle-2 {
+  animation: sparkle 1.6s ease-in-out 0.2s infinite;
+}
+.sparkle-3 {
+  animation: sparkle 1.6s ease-in-out 0.4s infinite;
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-up {
+  animation: fade-up 0.35s ease both;
+}
+
+.dashed-zone {
+  background-image: repeating-linear-gradient(
+      0deg,
+      #d9d9d9,
+      #d9d9d9 8px,
+      transparent 8px,
+      transparent 16px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      #d9d9d9,
+      #d9d9d9 8px,
+      transparent 8px,
+      transparent 16px
+    ),
+    repeating-linear-gradient(
+      180deg,
+      #d9d9d9,
+      #d9d9d9 8px,
+      transparent 8px,
+      transparent 16px
+    ),
+    repeating-linear-gradient(
+      270deg,
+      #d9d9d9,
+      #d9d9d9 8px,
+      transparent 8px,
+      transparent 16px
+    );
+  background-size: 2px 100%, 100% 2px, 2px 100%, 100% 2px;
+  background-position: 0 0, 0 0, 100% 0, 0 100%;
+  background-repeat: no-repeat;
+}
+
+.toolkit-border {
+  background: linear-gradient(#1c1c1c, #1c1c1c) padding-box,
+    linear-gradient(90deg, #ff8a65, #ff5c33) border-box;
+  border: 1.5px solid transparent;
+}
+
+.react-pdf__Page {
+  background: transparent !important;
+}
+
+.react-pdf__Page__canvas {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
 }
