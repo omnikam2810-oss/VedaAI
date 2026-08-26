@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { isReliableRegion, fromNormalizedFractions } from "@/lib/coordinates";
 import { displayQuestionNumber, extractQuestionReference, normalizeQuestionNumber } from "@/lib/extraction/numbering";
 import { validateUpload } from "@/lib/files/validate";
-import { applySemanticMatches, explicitMap, unansweredMappings, markUnmatchedAnswers } from "@/lib/mapping/answerMapper";
+import { applySemanticMatches, explicitMap, mergeContinuedAnswers, unansweredMappings, markUnmatchedAnswers } from "@/lib/mapping/answerMapper";
+import { sniffMime } from "@/lib/files/sniff";
+import { parseStreamEvent, safeJsonParse } from "@/lib/utils";
 import { toAppError } from "@/lib/errors";
 import { applyManualMapping, detectDuplicateMappings, finalizeAssessment } from "@/lib/validation/business";
 import { aiQuestionExtractionSchema } from "@/lib/validation/schemas";
@@ -42,6 +44,7 @@ function a(id: string, text: string, extra?: Partial<Answer>): Answer {
     status: extra?.status ?? "valid",
     questionReference: extra?.questionReference,
     reviewReason: extra?.reviewReason,
+    continuedFromPrevious: extra?.continuedFromPrevious,
   };
 }
 
@@ -145,12 +148,81 @@ describe("answer mapping", () => {
     expect(answer.status).toBe("review_required");
     expect(answer.confidence).toBeLessThan(0.55);
   });
+
+  it("does not inflate explicit mapping confidence", () => {
+    const questions = [q("q_1", "1", "Q1")];
+    const answers = [a("a1", "Q1 text", { questionReference: "1", confidence: 0.6 })];
+    const { mappings } = explicitMap(questions, answers);
+    expect(mappings[0]?.confidence).toBe(0.6);
+    expect(mappings[0]?.status).toBe("review_required");
+  });
+
+  it("does not guess when a number matches more than one question", () => {
+    const questions = [q("q_1", "1", "First"), q("q_1_dup", "1", "Second")];
+    const answers = [a("a1", "Q1 text", { questionReference: "1" })];
+    const { mappings, mappedAnswerIds } = explicitMap(questions, answers);
+    expect(mappings).toHaveLength(0);
+    expect(mappedAnswerIds.size).toBe(0);
+  });
+
+  it("flags a second explicit match to the same question as conflict", () => {
+    const questions = [q("q_1", "1", "Q1")];
+    const answers = [
+      a("a1", "Q1 first", { questionReference: "1" }),
+      a("a2", "Q1 again", { questionReference: "1" }),
+    ];
+    const { mappings } = explicitMap(questions, answers);
+    expect(mappings.map((item) => item.status)).toEqual(["mapped", "conflict"]);
+  });
+
+  it("does not merge unrelated answers just because they are on the next page", () => {
+    const merged = mergeContinuedAnswers([
+      a("a1", "Q1 answer", {
+        questionReference: "1",
+        regions: [fromNormalizedFractions({ page: 1, normalizedX: 0.1, normalizedY: 0.2, normalizedWidth: 0.8, normalizedHeight: 0.2, pageWidth: 595, pageHeight: 842 })],
+      }),
+      a("a2", "A different scribble", {
+        regions: [fromNormalizedFractions({ page: 2, normalizedX: 0.1, normalizedY: 0.2, normalizedWidth: 0.8, normalizedHeight: 0.2, pageWidth: 595, pageHeight: 842 })],
+      }),
+    ]);
+    expect(merged).toHaveLength(2);
+  });
+
+  it("merges a continuation flagged for the next page", () => {
+    const merged = mergeContinuedAnswers([
+      a("a1", "Photosynthesis starts here", {
+        questionReference: "2",
+        regions: [fromNormalizedFractions({ page: 1, normalizedX: 0.1, normalizedY: 0.6, normalizedWidth: 0.8, normalizedHeight: 0.3, pageWidth: 595, pageHeight: 842 })],
+      }),
+      a("a2", "and continues on the next page", {
+        continuedFromPrevious: true,
+        regions: [fromNormalizedFractions({ page: 2, normalizedX: 0.1, normalizedY: 0.1, normalizedWidth: 0.8, normalizedHeight: 0.25, pageWidth: 595, pageHeight: 842 })],
+      }),
+    ]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.regions.map((region) => region.page)).toEqual([1, 2]);
+  });
 });
 
 describe("files and AI failures", () => {
   it("rejects invalid documents", async () => {
     const file = new File([Buffer.from("hello")], "notes.txt", { type: "text/plain" });
     await expect(validateUpload(file, "Question paper")).rejects.toThrow(/PDF, PNG, JPG, or JPEG/i);
+  });
+
+  it("rejects empty files", async () => {
+    const file = new File([], "paper.pdf", { type: "application/pdf" });
+    await expect(validateUpload(file, "Question paper")).rejects.toThrow(/empty/i);
+  });
+
+  it("accepts a generated PDF that matches its extension", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const bytes = await readFile(join(process.cwd(), "public/demo/question-paper.pdf"));
+    const file = new File([bytes], "paper.pdf", { type: "application/pdf" });
+    const result = await validateUpload(file, "Question paper");
+    expect(result.mime).toBe("application/pdf");
+    expect(result.bytes.length).toBeGreaterThan(100);
   });
 
   it("rejects corrupted PDFs by magic bytes", async () => {
@@ -162,6 +234,12 @@ describe("files and AI failures", () => {
     const error = toAppError(new Error("429 resource exhausted"));
     expect(error.code).toBe("AI_RATE_LIMIT");
     expect(error.retryable).toBe(true);
+  });
+
+  it("does not expose raw SDK messages to the client", () => {
+    const error = toAppError(new Error("upstream stack dump with internal token xyz"));
+    expect(error.message).not.toMatch(/xyz|stack dump/i);
+    expect(error.code).toBe("INTERNAL_ERROR");
   });
 
   it("rejects malformed AI JSON with Zod", () => {
@@ -233,5 +311,43 @@ describe("reference extraction", () => {
   it("reads explicit student numbering", () => {
     expect(extractQuestionReference("Ans: 11(a) The answer")).toBe("11(a)");
     expect(extractQuestionReference("Q2. Photosynthesis")).toBe("2");
+  });
+});
+
+describe("stream and file sniffing", () => {
+  it("rejects malformed stream lines instead of throwing", () => {
+    expect(parseStreamEvent("{not json")).toBeNull();
+    expect(parseStreamEvent('{"type":"complete"}')).toEqual({ type: "complete" });
+  });
+
+  it("rejects malformed AI JSON wrappers", () => {
+    expect(() => safeJsonParse("not json at all")).toThrow();
+    expect(aiQuestionExtractionSchema.safeParse(safeJsonParse('{"questions":[]}')).success).toBe(true);
+  });
+
+  it("sniffs real file signatures and rejects renamed junk", () => {
+    expect(sniffMime(new Uint8Array([0x25, 0x50, 0x44, 0x46]))).toBe("application/pdf");
+    expect(sniffMime(new Uint8Array([0xff, 0xd8, 0xff, 0x00]))).toBe("image/jpeg");
+    expect(sniffMime(new Uint8Array([0x00, 0x01, 0x02, 0x03]))).toBeNull();
+  });
+});
+
+describe("finalization", () => {
+  it("surfaces unused low-confidence answers as unmatched", () => {
+    const demo = getDemoAssessment();
+    const result = finalizeAssessment({
+      questions: [q("q_1", "1", "Q1")],
+      answers: [
+        a("a1", "Q1", { questionReference: "1" }),
+        a("a2", "unclear scribble", { status: "review_required", confidence: 0.4 }),
+      ],
+      mappings: [{ id: "m1", questionId: "q_1", answerId: "a1", confidence: 0.9, status: "mapped", method: "explicit" }],
+      grades: [],
+      processingMetadata: demo.processingMetadata,
+    });
+    expect(result.answers.find((item) => item.id === "a2")?.status).toBe("unmatched");
+    expect(result.unmatchedAnswers.some((item) => item.id === "a2")).toBe(true);
+    expect(result.summary.reviewRequired).toBe(0);
+    expect(result.summary.unmappedAnswers).toBe(1);
   });
 });

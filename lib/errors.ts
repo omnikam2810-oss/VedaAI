@@ -1,3 +1,5 @@
+import { log } from "@/lib/logging";
+
 export class AppError extends Error {
   readonly code: string;
   readonly retryable: boolean;
@@ -43,7 +45,11 @@ export function toAppError(error: unknown): AppError {
         { retryable: false, status: 503 },
       );
     }
-    return new AppError("INTERNAL_ERROR", error.message, { retryable: true, status: 500 });
+    log.error("Unhandled error", { reason: error.name });
+    return new AppError("INTERNAL_ERROR", "Processing failed. Please retry, or use Demo Mode.", {
+      retryable: true,
+      status: 500,
+    });
   }
   return new AppError("INTERNAL_ERROR", "An unexpected error occurred.", {
     retryable: true,

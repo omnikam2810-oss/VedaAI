@@ -14,7 +14,7 @@ export function toNormalizedRegion(input: {
 }): AnswerRegion {
   const pageWidth = Math.max(input.pageWidth, 1);
   const pageHeight = Math.max(input.pageHeight, 1);
-  let x = input.x;
+  const x = input.x;
   let y = input.y;
   const width = input.width;
   const height = input.height;

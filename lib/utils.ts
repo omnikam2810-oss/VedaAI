@@ -26,6 +26,16 @@ export function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
 
+export function parseStreamEvent(line: string): unknown | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
 export function safeJsonParse(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);

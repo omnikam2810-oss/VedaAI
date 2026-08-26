@@ -1,14 +1,12 @@
-import { encodeEvent, isGeminiConfigured, missingKeyError, runAssessmentPipeline, runDemoPipeline } from "@/lib/pipeline";
 import { AppError, toAppError } from "@/lib/errors";
 import { log } from "@/lib/logging";
+import { encodeEvent, isGeminiConfigured, missingKeyError, runAssessmentPipeline, runDemoPipeline } from "@/lib/pipeline";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const encoder = new TextEncoder();
-
   const stream = new ReadableStream({
     async start(controller) {
       const emit = (event: Parameters<typeof encodeEvent>[0]) => {

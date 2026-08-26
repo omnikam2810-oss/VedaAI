@@ -1,28 +1,12 @@
 import { AppError } from "@/lib/errors";
 import { ALLOWED_EXTENSIONS, ALLOWED_MIME_TYPES, MAX_FILE_BYTES } from "@/lib/constants";
+import { sniffMime } from "@/lib/files/sniff";
 import type { SupportedMime } from "@/types/assessment";
+
+export { sniffMime };
 
 function extensionOf(filename: string): string {
   return filename.split(".").pop()?.toLowerCase() ?? "";
-}
-
-function sniffMime(bytes: Uint8Array): SupportedMime | null {
-  if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
-    return "application/pdf";
-  }
-  if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47
-  ) {
-    return "image/png";
-  }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return "image/jpeg";
-  }
-  return null;
 }
 
 export function declaredMime(file: { type: string; name: string }): string {

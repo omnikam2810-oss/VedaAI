@@ -5,6 +5,7 @@ import { Upload, X } from "lucide-react";
 import { MAX_FILE_BYTES } from "@/lib/constants";
 import { formatBytes } from "@/lib/utils";
 import { cn } from "@/lib/utils";
+import { sniffMime } from "@/lib/files/sniff";
 import { PdfGlyph } from "@/components/ui/Brand";
 
 const ACCEPT = ".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg";
@@ -40,10 +41,26 @@ export function FileUploader({ label, accent, file, onFile, error }: FileUploade
     return true;
   }
 
-  function handleFiles(list: FileList | null) {
+  async function handleFiles(list: FileList | null) {
     const next = list?.[0];
     if (!next) return;
-    if (validate(next)) onFile(next);
+    if (!validate(next)) return;
+    const ext = next.name.split(".").pop()?.toLowerCase();
+    if (!ext) return;
+    const header = new Uint8Array(await next.slice(0, 8).arrayBuffer());
+    const sniffed = sniffMime(header);
+    if (!sniffed) {
+      setLocalError("The file contents are not a valid PDF, PNG, or JPEG.");
+      return;
+    }
+    const expected =
+      ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : "image/jpeg";
+    if (sniffed !== expected) {
+      setLocalError("The file contents do not match its extension.");
+      return;
+    }
+    setLocalError(null);
+    onFile(next);
   }
 
   return (

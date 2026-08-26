@@ -114,6 +114,7 @@ export async function runAssessmentPipeline(
     steps = setStep(steps, "mapping", "processing");
     emitProgress(emit, "mapping_answers", "Mapping answers to questions...", steps);
     const mapped = await mapAnswers(extractedQuestions.questions, extractedAnswers.answers);
+    warnings.push(...mapped.warnings);
     steps = setStep(steps, "mapping", "completed", "Completed");
     emitProgress(emit, "mapping_answers", "Answer mapping completed", steps);
 

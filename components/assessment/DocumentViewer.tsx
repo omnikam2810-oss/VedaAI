@@ -1,25 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { overlayStyle } from "@/lib/coordinates";
-// highlight helper lives in lib/coordinates to keep this module client-only for PDF.js
 import { cn } from "@/lib/utils";
 import type { AnswerRegion } from "@/types/assessment";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
 interface DocumentViewerProps {
   url: string | null;
   mime?: string;
-  filename?: string;
-  pageCountHint?: number;
   highlights: Array<{ region: AnswerRegion; label: string }>;
   activePage?: number;
-  activeRegionIndex?: number;
-  onPageChange?: (page: number) => void;
+  activeRegion?: AnswerRegion | null;
   emptyMessage?: string;
 }
 
@@ -28,23 +24,25 @@ export function DocumentViewer({
   mime,
   highlights,
   activePage,
-  activeRegionIndex = 0,
-  onPageChange,
+  activeRegion,
   emptyMessage,
 }: DocumentViewerProps) {
-  const isPdf = !mime || mime.includes("pdf") || url?.includes(".pdf");
-  const [page, setPage] = useState(1);
+  const isPdf = mime ? mime.includes("pdf") : true;
+  const [page, setPage] = useState(activePage && activePage >= 1 ? activePage : 1);
+  const [syncedActivePage, setSyncedActivePage] = useState(activePage);
   const [pageCount, setPageCount] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [width, setWidth] = useState(520);
+  const frameRef = useRef<HTMLDivElement>(null);
+
+  if (activePage && activePage >= 1 && activePage !== syncedActivePage) {
+    setSyncedActivePage(activePage);
+    setPage(activePage);
+  }
 
   useEffect(() => {
-    if (activePage && activePage !== page) setPage(activePage);
-  }, [activePage, page]);
-
-  useEffect(() => {
-    const frame = document.getElementById("answer-frame");
+    const frame = frameRef.current;
     if (!frame) return;
     const observer = new ResizeObserver((entries) => {
       const next = entries[0]?.contentRect.width;
@@ -60,9 +58,7 @@ export function DocumentViewer({
   );
 
   function changePage(next: number) {
-    const clamped = Math.min(pageCount, Math.max(1, next));
-    setPage(clamped);
-    onPageChange?.(clamped);
+    setPage(Math.min(pageCount, Math.max(1, next)));
   }
 
   if (!url) {
@@ -103,9 +99,9 @@ export function DocumentViewer({
       {error ? (
         <p className="px-4 text-sm text-[#ef4444]">{error}</p>
       ) : null}
-      <div id="answer-frame" className="min-h-0 flex-1 overflow-auto bg-[#f3f3f3] px-3 pb-6">
+      <div ref={frameRef} className="min-h-0 flex-1 overflow-auto bg-[#f3f3f3] px-3 pb-6">
         <div className="mx-auto origin-top" style={{ width: width * zoom }}>
-          <div className="relative overflow-hidden rounded-md bg-white shadow-sm" style={{ width: width * zoom }}>
+          <div className="relative rounded-md bg-white shadow-sm" style={{ width: width * zoom }}>
             {isPdf ? (
               <Document
                 file={url}
@@ -125,10 +121,10 @@ export function DocumentViewer({
                   />
                   {pageHighlights.map((item, index) => (
                     <AnswerHighlight
-                      key={`${item.label}-${index}`}
+                      key={`${item.label}-${item.region.page}-${index}`}
                       region={item.region}
                       label={item.label}
-                      active={index === activeRegionIndex || pageHighlights.length === 1}
+                      active={isActiveRegion(item.region, activeRegion)}
                     />
                   ))}
                 </div>
@@ -145,10 +141,10 @@ export function DocumentViewer({
                 />
                 {pageHighlights.map((item, index) => (
                   <AnswerHighlight
-                    key={`${item.label}-${index}`}
+                    key={`${item.label}-${item.region.page}-${index}`}
                     region={item.region}
                     label={item.label}
-                    active={index === activeRegionIndex || pageHighlights.length === 1}
+                    active={isActiveRegion(item.region, activeRegion)}
                   />
                 ))}
               </div>
@@ -157,6 +153,15 @@ export function DocumentViewer({
         </div>
       </div>
     </div>
+  );
+}
+
+function isActiveRegion(region: AnswerRegion, active?: AnswerRegion | null): boolean {
+  if (!active) return true;
+  return (
+    region.page === active.page &&
+    Math.abs(region.normalizedX - active.normalizedX) < 0.001 &&
+    Math.abs(region.normalizedY - active.normalizedY) < 0.001
   );
 }
 
@@ -184,4 +189,3 @@ export function AnswerHighlight({
     </div>
   );
 }
-

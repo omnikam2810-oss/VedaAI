@@ -83,6 +83,7 @@ export interface Answer {
   confidence: number;
   status: AnswerStatus;
   reviewReason?: string;
+  continuedFromPrevious?: boolean;
 }
 
 export interface Mapping {

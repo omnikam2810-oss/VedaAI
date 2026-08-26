@@ -119,11 +119,16 @@ export function buildSummary(
   grades: Grade[],
 ): AssessmentSummary {
   const unanswered = mappings.filter((mapping) => mapping.status === "unanswered").length;
-  const reviewRequired = [
-    ...questions.filter((item) => item.status === "review_required"),
-    ...answers.filter((item) => item.status === "review_required"),
-    ...mappings.filter((item) => item.status === "review_required" || item.status === "conflict"),
-  ].length;
+  const reviewIds = new Set<string>();
+  for (const question of questions) {
+    if (question.status === "review_required") reviewIds.add(question.id);
+  }
+  for (const mapping of mappings) {
+    if (mapping.status === "review_required" || mapping.status === "conflict") {
+      reviewIds.add(mapping.questionId);
+    }
+  }
+  const reviewRequired = reviewIds.size;
   const mappedQuestionIds = new Set(
     mappings.filter((mapping) => mapping.answerId && mapping.status !== "unanswered").map((item) => item.questionId),
   );
@@ -185,7 +190,11 @@ export function finalizeAssessment(result: Omit<AssessmentResult, "summary" | "u
   });
   const answers = result.answers.map((answer) =>
     unmatchedAnswers.some((item) => item.id === answer.id)
-      ? { ...answer, status: answer.status === "valid" ? "unmatched" : answer.status }
+      ? {
+          ...answer,
+          status: "unmatched" as const,
+          reviewReason: answer.reviewReason ?? "Unable to confidently associate this answer with a question.",
+        }
       : answer,
   );
 

@@ -2,7 +2,6 @@ import { generateValidatedJson } from "@/lib/ai/gemini";
 import { ANSWER_EXTRACTION_PROMPT } from "@/lib/ai/prompts";
 import { HIGH_CONFIDENCE } from "@/lib/constants";
 import { fromNormalizedFractions } from "@/lib/coordinates";
-import { AppError } from "@/lib/errors";
 import { normalizeQuestionNumber } from "@/lib/extraction/numbering";
 import { mergeContinuedAnswers } from "@/lib/mapping/answerMapper";
 import { log } from "@/lib/logging";
@@ -63,6 +62,7 @@ export async function extractAnswers(document: PreparedDocument): Promise<{ answ
       reviewReason: item.reviewReason
         || (unreadable ? "The handwriting on this region could not be confidently interpreted." : undefined)
         || (regions.length === 0 ? "Unable to reliably determine answer region." : undefined),
+      continuedFromPrevious: Boolean(item.continuedFromPrevious),
     };
   });
 
@@ -70,10 +70,10 @@ export async function extractAnswers(document: PreparedDocument): Promise<{ answ
   const answers = validateAnswers(merged, document.meta.pageCount);
 
   if (!answers.length) {
-    throw new AppError(
-      "NO_ANSWERS",
-      "No answers could be extracted from the answer sheet. The document may be blank or unreadable.",
-    );
+    return {
+      answers: [],
+      warnings: [...(result.warnings ?? []), "No handwritten answers were detected. Questions will be marked unanswered."],
+    };
   }
 
   log.info("Answer extraction completed", { count: answers.length });

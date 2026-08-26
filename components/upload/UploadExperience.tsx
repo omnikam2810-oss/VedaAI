@@ -1,7 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAssessment } from "@/components/AssessmentProvider";
 import { FileUploader } from "@/components/upload/FileUploader";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 export function UploadExperience() {
   const router = useRouter();
+  const startedDemo = useRef(false);
   const {
     questionFile,
     answerFile,
@@ -20,14 +21,26 @@ export function UploadExperience() {
     steps,
     error,
     clearError,
+    result,
   } = useAssessment();
 
   const ready = Boolean(questionFile && answerFile) && !processing;
 
-  async function analyze(demo = false) {
-    const ok = await startProcessing(demo);
-    if (ok) router.push("/assessment");
-  }
+  const analyze = useCallback(
+    async (demo = false) => {
+      const ok = await startProcessing(demo);
+      if (ok) router.push("/assessment");
+    },
+    [startProcessing, router],
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined" || startedDemo.current || processing || result) return;
+    const demo = new URLSearchParams(window.location.search).get("demo") === "1";
+    if (!demo) return;
+    startedDemo.current = true;
+    void analyze(true);
+  }, [analyze, processing, result]);
 
   return (
     <AppShell variant={processing ? "processing" : "upload"}>
@@ -45,12 +58,11 @@ export function UploadExperience() {
             <span className="absolute -right-6 top-2 h-6 w-6 rounded-full bg-[#ff8a65]/70" />
             <span className="absolute right-0 bottom-0 h-3 w-3 rounded-full bg-[#ffd0c4]" />
             <div className="relative h-[120px] w-[120px] overflow-hidden rounded-full bg-[#f6e7c8] shadow-[0_0_0_10px_rgba(255,107,74,0.12)]">
-              <Image
-                src="/images/teacher-illustration.png"
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/images/teacher-illustration.svg"
                 alt="Teacher ready to upload exam papers"
-                fill
-                className="object-cover"
-                priority
+                className="h-full w-full object-cover"
               />
             </div>
           </div>

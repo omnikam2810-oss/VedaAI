@@ -30,7 +30,7 @@ export function ConfidenceBadge({
 
 export function ScorePill({ grade, unanswered }: { grade?: Grade; unanswered?: boolean }) {
   if (unanswered) {
-    return <span className="rounded-full bg-[#fee2e2] px-2 py-0.5 text-[12px] font-semibold text-[#dc2626]">0 unanswered</span>;
+    return <span className="rounded-full bg-[#fee2e2] px-2 py-0.5 text-[12px] font-semibold text-[#dc2626]">Unanswered</span>;
   }
   if (!grade || grade.score === null || grade.maxMarks === null) {
     return <span className="rounded-full bg-[#f3f3f3] px-2 py-0.5 text-[12px] font-medium text-[#666]">Score unavailable</span>;
@@ -160,12 +160,13 @@ export function ReviewPanel({
   onConfirm: () => void;
   onUnanswered: () => void;
 }) {
-  if (!mapping || (mapping.status !== "review_required" && mapping.status !== "conflict")) return null;
+  if (!mapping || (mapping.status !== "review_required" && mapping.status !== "conflict" && mapping.status !== "unanswered")) return null;
   const current = result.answers.find((answer) => answer.id === mapping.answerId);
+  const title = mapping.status === "unanswered" ? "No answer mapped" : "Review required";
 
   return (
     <div className="rounded-xl border border-[#f5d0a6] bg-[#fff8ef] p-3">
-      <p className="text-sm font-semibold text-[#9a3412]">Review required</p>
+      <p className="text-sm font-semibold text-[#9a3412]">{title}</p>
       <p className="mt-1 text-sm text-[#7c2d12]">
         {mapping.reviewReason || "This mapping needs a teacher decision."}
       </p>
@@ -189,9 +190,11 @@ export function ReviewPanel({
         ))}
       </select>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className="rounded-full bg-[#1c1c1c] px-3 py-1.5 text-xs font-semibold text-white" onClick={onConfirm}>
-          Confirm mapping
-        </button>
+        {mapping.answerId ? (
+          <button type="button" className="rounded-full bg-[#1c1c1c] px-3 py-1.5 text-xs font-semibold text-white" onClick={onConfirm}>
+            Confirm mapping
+          </button>
+        ) : null}
         <button type="button" className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[#7c2d12]" onClick={onUnanswered}>
           Mark unanswered
         </button>

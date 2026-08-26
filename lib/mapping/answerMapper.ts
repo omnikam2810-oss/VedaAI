@@ -23,31 +23,25 @@ export function explicitMap(questions: Question[], answers: Answer[]): {
     const reference = answer.questionReference || extractQuestionReference(answer.text);
     if (!reference) continue;
     const matches = questions.filter((question) => numbersMatch(question.normalizedNumber, reference));
-    if (matches.length === 1 && !mappedQuestionIds.has(matches[0].id) && !mappedAnswerIds.has(answer.id)) {
+    if (matches.length === 1 && !mappedAnswerIds.has(answer.id)) {
+      const question = matches[0];
+      const alreadyMapped = mappedQuestionIds.has(question.id);
+      const lowConfidence = answer.confidence < HIGH_CONFIDENCE;
       mappings.push({
         id: uniqueId("map"),
-        questionId: matches[0].id,
+        questionId: question.id,
         answerId: answer.id,
-        confidence: Math.max(answer.confidence, 0.9),
-        status: answer.confidence >= HIGH_CONFIDENCE ? "mapped" : "review_required",
+        confidence: answer.confidence,
+        status: alreadyMapped ? "conflict" : lowConfidence ? "review_required" : "mapped",
         method: "explicit",
-        reviewReason:
-          answer.confidence >= HIGH_CONFIDENCE
-            ? undefined
-            : "Explicit number found but answer extraction confidence is low.",
+        reviewReason: alreadyMapped
+          ? "Another answer is already mapped to this question number."
+          : lowConfidence
+            ? "Explicit number found but answer extraction confidence is low."
+            : undefined,
       });
       mappedAnswerIds.add(answer.id);
-      mappedQuestionIds.add(matches[0].id);
-    } else if (matches.length > 1) {
-      mappings.push({
-        id: uniqueId("map"),
-        questionId: matches[0].id,
-        answerId: answer.id,
-        confidence: 0.5,
-        status: "review_required",
-        method: "explicit",
-        reviewReason: "Question number matched more than one extracted question.",
-      });
+      mappedQuestionIds.add(question.id);
     }
   }
 
@@ -132,12 +126,13 @@ export function mergeContinuedAnswers(answers: Answer[]): Answer[] {
       answer.questionReference &&
       normalizeQuestionNumber(previous.questionReference) ===
         normalizeQuestionNumber(answer.questionReference);
-    const continued = Boolean(
-      answer.text.toLowerCase().includes("continued") ||
-        previous?.questionReference && !answer.questionReference && answer.regions[0]?.page === (previous.regions.at(-1)?.page ?? 0) + 1,
-    );
+    const continued =
+      Boolean(answer.continuedFromPrevious) || answer.text.toLowerCase().includes("continued");
+    const sequentialPage =
+      Boolean(previous) &&
+      answer.regions[0]?.page === (previous?.regions.at(-1)?.page ?? 0) + 1;
 
-    if (previous && (sameRef || continued) && previous.questionReference) {
+    if (previous && (sameRef || (continued && sequentialPage))) {
       previous.text = `${previous.text}\n${answer.text}`.trim();
       previous.regions = [...previous.regions, ...answer.regions];
       previous.confidence = Math.min(previous.confidence, answer.confidence);

@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { DEFAULT_MODEL, FALLBACK_MODEL } from "@/lib/constants";
-import { AppError } from "@/lib/errors";
+import { AppError, toAppError } from "@/lib/errors";
 import { log } from "@/lib/logging";
 import { sleep, safeJsonParse } from "@/lib/utils";
 import type { SupportedMime } from "@/types/assessment";
@@ -32,19 +32,35 @@ interface GenerateJsonArgs<T> {
 
 async function generateOnce(model: string, parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }>): Promise<string> {
   const client = getClient();
-  const response = await client.models.generateContent({
-    model,
-    contents: [{ role: "user", parts }],
-    config: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
+  const parsedTimeout = Number(process.env.GEMINI_TIMEOUT_MS ?? 45000);
+  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout >= 5000 ? parsedTimeout : 45000;
+  const timeout = new AppError("AI_TIMEOUT", "The AI service timed out. Please retry.", {
+    retryable: true,
+    status: 504,
   });
-  const text = response.text;
-  if (!text) {
-    throw new AppError("AI_EMPTY", "The AI returned an empty response.", { retryable: true, status: 502 });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const response = await Promise.race([
+      client.models.generateContent({
+        model,
+        contents: [{ role: "user", parts }],
+        config: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+      }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(timeout), timeoutMs);
+      }),
+    ]);
+    const text = response.text;
+    if (!text) {
+      throw new AppError("AI_EMPTY", "The AI returned an empty response.", { retryable: true, status: 502 });
+    }
+    return text;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  return text;
 }
 
 export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promise<T> {
@@ -67,7 +83,7 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
   let lastError: unknown;
 
   for (const model of models) {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         log.info("AI request started", { label: args.label, model, attempt: attempt + 1 });
         const text = await generateOnce(model, parts);
@@ -77,7 +93,7 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
           throw new AppError(
             "AI_MALFORMED",
             `The AI response for ${args.label} failed validation and was rejected.`,
-            { retryable: attempt < 2, status: 502 },
+            { retryable: attempt < 1, status: 502 },
           );
         }
         log.info("AI request completed", { label: args.label, model });
@@ -87,13 +103,14 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
         const message = error instanceof Error ? error.message.toLowerCase() : "";
         const rateLimited = message.includes("429") || message.includes("resource exhausted");
         const unavailable = message.includes("not found") || message.includes("404");
+        const timedOut = error instanceof AppError && error.code === "AI_TIMEOUT";
         if (unavailable) break;
-        if (rateLimited && attempt < 2) {
-          log.warn("AI rate limited, retrying", { label: args.label, attempt: attempt + 1 });
+        if ((rateLimited || timedOut) && attempt < 1) {
+          log.warn("AI retrying", { label: args.label, attempt: attempt + 1 });
           await sleep(1000 * 2 ** attempt);
           continue;
         }
-        if (error instanceof AppError && error.code === "AI_MALFORMED" && attempt < 2) {
+        if (error instanceof AppError && error.code === "AI_MALFORMED" && attempt < 1) {
           await sleep(400);
           continue;
         }
@@ -103,7 +120,5 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
   }
 
   if (lastError instanceof AppError) throw lastError;
-  throw lastError instanceof Error
-    ? new AppError("AI_UNAVAILABLE", lastError.message, { retryable: true, status: 503 })
-    : new AppError("AI_UNAVAILABLE", "The AI service is unavailable.", { retryable: true, status: 503 });
+  throw toAppError(lastError);
 }

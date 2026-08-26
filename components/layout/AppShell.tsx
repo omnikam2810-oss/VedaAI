@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Bell,
@@ -46,10 +45,15 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen bg-[#ececec] p-2 md:p-3 md:gap-3">
-      <Sidebar variant={variant} collapsed={collapsed} darkRail={darkRail} className="hidden md:flex" />
+      <Sidebar
+        variant={variant}
+        collapsed={collapsed}
+        darkRail={darkRail}
+        className="hidden md:flex"
+        onHelp={() => setHelpOpen(true)}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header
-          variant={variant}
           onMenu={() => setMobileOpen(true)}
           onHelp={() => setHelpOpen(true)}
           onNotes={() => setNotesOpen((value) => !value)}
@@ -63,7 +67,7 @@ export function AppShell({
         <div className="fixed inset-0 z-50 md:hidden">
           <button className="absolute inset-0 bg-black/30" aria-label="Close menu" onClick={() => setMobileOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-[280px] p-2">
-            <Sidebar variant="upload" collapsed={false} darkRail={false} onNavigate={() => setMobileOpen(false)} />
+            <Sidebar variant="upload" collapsed={false} darkRail={false} onNavigate={() => setMobileOpen(false)} onHelp={() => { setMobileOpen(false); setHelpOpen(true); }} />
           </div>
         </div>
       ) : null}
@@ -78,16 +82,18 @@ function Sidebar({
   darkRail,
   className,
   onNavigate,
+  onHelp,
 }: {
   variant: ShellVariant;
   collapsed: boolean;
   darkRail: boolean;
   className?: string;
   onNavigate?: () => void;
+  onHelp?: () => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { startProcessing } = useAssessment();
+  const { startProcessing, result } = useAssessment();
 
   return (
     <aside
@@ -119,15 +125,27 @@ function Sidebar({
       <nav className="mt-6 flex flex-1 flex-col gap-1" aria-label="Main">
         {NAV.map((item) => {
           const Icon = item.icon;
-          const isExams = item.label === "Exams";
-          const active = isExams || (item.href === pathname && item.label === "Home" && pathname === "/");
+          const active = item.label === "Exams" && (pathname === "/" || pathname === "/assessment");
           return (
-            <Link
+            <button
               key={item.label}
-              href={item.href}
-              onClick={onNavigate}
+              type="button"
+              onClick={() => {
+                onNavigate?.();
+                if (item.label === "My Library") {
+                  void startProcessing(true).then((ok) => {
+                    if (ok) router.push("/assessment");
+                  });
+                  return;
+                }
+                if (item.label === "My Classroom" || item.label === "Assignments") {
+                  router.push(result ? "/assessment" : "/");
+                  return;
+                }
+                router.push(item.href.split("?")[0]);
+              }}
               className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-[14px] transition",
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] transition",
                 collapsed && "justify-center px-0",
                 active
                   ? darkRail
@@ -140,14 +158,17 @@ function Sidebar({
             >
               <Icon className="h-[18px] w-[18px]" />
               {!collapsed ? item.label : <span className="sr-only">{item.label}</span>}
-            </Link>
+            </button>
           );
         })}
       </nav>
 
-      <Link
-        href="/"
-        onClick={onNavigate}
+      <button
+        type="button"
+        onClick={() => {
+          onNavigate?.();
+          onHelp?.();
+        }}
         className={cn(
           "mb-3 flex items-center gap-3 rounded-xl px-3 py-2 text-sm",
           collapsed && "justify-center px-0",
@@ -156,7 +177,7 @@ function Sidebar({
       >
         <Settings className="h-[18px] w-[18px]" />
         {!collapsed ? "Settings" : <span className="sr-only">Settings</span>}
-      </Link>
+      </button>
 
       {!collapsed ? (
         <div className="rounded-2xl bg-[#f6f6f6] p-3">
@@ -188,13 +209,11 @@ function Sidebar({
 }
 
 function Header({
-  variant,
   onMenu,
   onHelp,
   onNotes,
   notesOpen,
 }: {
-  variant: ShellVariant;
   onMenu: () => void;
   onHelp: () => void;
   onNotes: () => void;

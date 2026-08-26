@@ -194,6 +194,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
 GEMINI_MODEL=gemini-2.5-flash
+# GEMINI_TIMEOUT_MS=45000
 ```
 
 Never commit `.env.local`. `.env.example` has no secrets.
@@ -210,7 +211,7 @@ npm run build
 npx vercel --prod
 ```
 
-Set the process route `maxDuration` to at least 60 seconds so extraction can finish.
+The process route `maxDuration` is 300 seconds so multi-step Gemini extraction can finish.
 
 ## Tests
 

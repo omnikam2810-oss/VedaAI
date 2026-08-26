@@ -2,22 +2,22 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { AppShell } from "@/components/layout/AppShell";
 import { useAssessment } from "@/components/AssessmentProvider";
 import {
   AssessmentSummary,
+  ConfidenceBadge,
   QuestionItem,
   ReviewPanel,
 } from "@/components/assessment/QuestionList";
-import dynamic from "next/dynamic";
 import { highlightFromAnswer } from "@/lib/coordinates";
+import { cn } from "@/lib/utils";
 
 const DocumentViewer = dynamic(
   () => import("@/components/assessment/DocumentViewer").then((mod) => mod.DocumentViewer),
   { ssr: false, loading: () => <p className="p-8 text-sm text-[#888]">Loading answer sheet…</p> },
 );
-import { ConfidenceBadge } from "@/components/assessment/QuestionList";
-import { cn } from "@/lib/utils";
 
 export function AssessmentDashboard() {
   const router = useRouter();
@@ -33,6 +33,7 @@ export function AssessmentDashboard() {
     remap,
     confirmReview,
     processing,
+    reset,
   } = useAssessment();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [mobileTab, setMobileTab] = useState<"questions" | "sheet">("questions");
@@ -122,9 +123,21 @@ export function AssessmentDashboard() {
           <section className={cn("min-h-0 overflow-auto border-r border-[#f0f0f0] p-4", mobileTab === "sheet" && "hidden lg:block")}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h1 className="text-[15px] font-semibold">Extracted Questions (from question paper)</h1>
-              <button type="button" className="text-xs font-medium text-[#666]" onClick={() => toggleAll(!Object.values(expanded).some(Boolean))}>
-                Expand All
-              </button>
+              <div className="flex items-center gap-3">
+                <button type="button" className="text-xs font-medium text-[#666]" onClick={() => toggleAll(!Object.values(expanded).some(Boolean))}>
+                  Expand All
+                </button>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[#ff6b4a]"
+                  onClick={() => {
+                    reset();
+                    router.push("/");
+                  }}
+                >
+                  New assessment
+                </button>
+              </div>
             </div>
             <AssessmentSummary result={result} />
             <div className="mt-4 space-y-3">
@@ -148,12 +161,12 @@ export function AssessmentDashboard() {
                       }}
                       onToggle={() => setExpanded((current) => ({ ...current, [question.id]: !current[question.id] }))}
                     />
-                    {(Boolean(expanded[question.id]) || selectedQuestionId === question.id) && mapping ? (
+                    {(Boolean(expanded[question.id]) || selectedQuestionId === question.id) && mapping && (mapping.status === "review_required" || mapping.status === "conflict" || mapping.status === "unanswered") ? (
                       <ReviewPanel
                         result={result}
                         question={question}
                         mapping={mapping}
-                        onChange={(answerId) => remap(question.id, answerId)}
+                        onChange={(answerId) => remap(question.id, answerId || null)}
                         onConfirm={() => confirmReview(question.id)}
                         onUnanswered={() => remap(question.id, null)}
                       />
@@ -225,7 +238,7 @@ export function AssessmentDashboard() {
               mime={result.processingMetadata.answerDocument.mime}
               highlights={selectedMapping?.status === "unanswered" ? [] : highlights}
               activePage={activeRegion?.page}
-              activeRegionIndex={0}
+              activeRegion={activeRegion}
               emptyMessage="The answer sheet could not be loaded."
             />
           </section>

@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { applyManualMapping, confirmMapping } from "@/lib/validation/business";
 import type { AssessmentResult, ProcessingStep, StreamEvent } from "@/types/assessment";
 import { INITIAL_STEPS } from "@/lib/constants";
+import { parseStreamEvent } from "@/lib/utils";
 
 interface SessionState {
   questionFile: File | null;
@@ -154,8 +155,9 @@ export function AssessmentProvider({ children }: { children: ReactNode }) {
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
         for (const line of lines) {
-          if (!line.trim()) continue;
-          const event = JSON.parse(line) as StreamEvent;
+          const parsed = parseStreamEvent(line);
+          if (!parsed || typeof parsed !== "object") continue;
+          const event = parsed as StreamEvent;
           if (event.type === "progress") {
             setState((current) => ({ ...current, steps: event.steps }));
           } else if (event.type === "complete") {
@@ -169,6 +171,7 @@ export function AssessmentProvider({ children }: { children: ReactNode }) {
               regionIndex: 0,
             }));
           } else if (event.type === "error") {
+            void reader.cancel();
             setState((current) => ({
               ...current,
               processing: false,
@@ -177,6 +180,36 @@ export function AssessmentProvider({ children }: { children: ReactNode }) {
             return false;
           }
         }
+      }
+      const trailing = parseStreamEvent(buffer);
+      if (trailing && typeof trailing === "object") {
+        const event = trailing as StreamEvent;
+        if (event.type === "complete") {
+          completed = true;
+          setState((current) => ({
+            ...current,
+            result: event.assessment,
+            processing: false,
+            selectedQuestionId: event.assessment.questions[0]?.id ?? null,
+            selectedUnmappedId: null,
+            regionIndex: 0,
+          }));
+        } else if (event.type === "error") {
+          setState((current) => ({
+            ...current,
+            processing: false,
+            error: { message: event.message, retryable: event.retryable, code: event.code },
+          }));
+          return false;
+        }
+      }
+
+      if (!completed) {
+        setState((current) => ({
+          ...current,
+          processing: false,
+          error: current.error ?? { message: "Processing ended without a result. Please retry.", retryable: true },
+        }));
       }
 
       return completed;

@@ -55,8 +55,10 @@ async function semanticMatches(questions: Question[], answers: Answer[]): Promis
 export async function mapAnswers(questions: Question[], answers: Answer[]): Promise<{
   mappings: Mapping[];
   answers: Answer[];
+  warnings: string[];
 }> {
   log.info("Mapping started", { questions: questions.length, answers: answers.length });
+  const warnings: string[] = [];
 
   const explicit = explicitMap(questions, answers);
   const leftoverQuestions = questions.filter((question) => !explicit.mappedQuestionIds.has(question.id));
@@ -64,14 +66,19 @@ export async function mapAnswers(questions: Question[], answers: Answer[]): Prom
 
   let semantic: Mapping[] = [];
   if (leftoverQuestions.length && leftoverAnswers.length) {
-    const matches = await semanticMatches(leftoverQuestions, leftoverAnswers);
-    semantic = applySemanticMatches(
-      leftoverQuestions,
-      leftoverAnswers,
-      matches,
-      explicit.mappedAnswerIds,
-      explicit.mappedQuestionIds,
-    );
+    try {
+      const matches = await semanticMatches(leftoverQuestions, leftoverAnswers);
+      semantic = applySemanticMatches(
+        leftoverQuestions,
+        leftoverAnswers,
+        matches,
+        explicit.mappedAnswerIds,
+        explicit.mappedQuestionIds,
+      );
+    } catch (error) {
+      log.warn("Semantic mapping skipped", { reason: error instanceof Error ? error.name : "unknown" });
+      warnings.push("Semantic mapping could not be completed. Explicit numbers were still mapped; remaining items need review.");
+    }
   }
 
   const unanswered = unansweredMappings(questions, explicit.mappedQuestionIds);
@@ -85,5 +92,6 @@ export async function mapAnswers(questions: Question[], answers: Answer[]): Prom
   return {
     mappings: [...explicit.mappings, ...semantic, ...unanswered],
     answers: mappedAnswers,
+    warnings,
   };
 }
