@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
-import { DEFAULT_MODEL, FALLBACK_MODEL } from "@/lib/constants";
-import { AppError, toAppError } from "@/lib/errors";
+import { DEFAULT_MODEL, FALLBACK_MODEL, RETIRED_MODELS } from "@/lib/constants";
+import { AppError, googleStatus, toAppError } from "@/lib/errors";
 import { log } from "@/lib/logging";
 import { sleep, safeJsonParse } from "@/lib/utils";
 import type { SupportedMime } from "@/types/assessment";
@@ -18,8 +18,22 @@ function getClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey });
 }
 
+function getCandidateModels(): string[] {
+  const configured = process.env.GEMINI_MODEL?.trim();
+  const chain: string[] = [];
+  if (configured) {
+    if (RETIRED_MODELS.has(configured)) {
+      log.warn("Skipping retired Gemini model", { model: configured, using: DEFAULT_MODEL });
+    } else {
+      chain.push(configured);
+    }
+  }
+  chain.push(DEFAULT_MODEL, FALLBACK_MODEL);
+  return [...new Set(chain)];
+}
+
 export function getModelName(): string {
-  return process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  return getCandidateModels()[0] ?? DEFAULT_MODEL;
 }
 
 interface GenerateJsonArgs<T> {
@@ -32,9 +46,9 @@ interface GenerateJsonArgs<T> {
 
 async function generateOnce(model: string, parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }>): Promise<string> {
   const client = getClient();
-  const parsedTimeout = Number(process.env.GEMINI_TIMEOUT_MS ?? 45000);
-  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout >= 5000 ? parsedTimeout : 45000;
-  const timeout = new AppError("AI_TIMEOUT", "The AI service timed out. Please retry.", {
+  const parsedTimeout = Number(process.env.GEMINI_TIMEOUT_MS ?? 90000);
+  const timeoutMs = Number.isFinite(parsedTimeout) && parsedTimeout >= 5000 ? parsedTimeout : 90000;
+  const timeout = new AppError("AI_TIMEOUT", "Gemini took too long to read the documents. Please retry.", {
     retryable: true,
     status: 504,
   });
@@ -79,7 +93,7 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
     });
   }
 
-  const models = [getModelName(), FALLBACK_MODEL].filter((model, index, list) => list.indexOf(model) === index);
+  const models = getCandidateModels();
   let lastError: unknown;
 
   for (const model of models) {
@@ -101,13 +115,21 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
       } catch (error) {
         lastError = error;
         const message = error instanceof Error ? error.message.toLowerCase() : "";
-        const rateLimited = message.includes("429") || message.includes("resource exhausted");
-        const unavailable = message.includes("not found") || message.includes("404");
+        const rateLimited =
+          message.includes("429") ||
+          message.includes("resource exhausted") ||
+          message.includes("quota") ||
+          googleStatus(error) === 429;
+        const unavailable =
+          message.includes("not found") ||
+          message.includes("404") ||
+          googleStatus(error) === 404;
+        const overloaded = googleStatus(error) === 503 || message.includes("overloaded");
         const timedOut = error instanceof AppError && error.code === "AI_TIMEOUT";
         if (unavailable) break;
-        if ((rateLimited || timedOut) && attempt < 1) {
+        if ((rateLimited || timedOut || overloaded) && attempt < 1) {
           log.warn("AI retrying", { label: args.label, attempt: attempt + 1 });
-          await sleep(1000 * 2 ** attempt);
+          await sleep(rateLimited || overloaded ? 2500 : 1000);
           continue;
         }
         if (error instanceof AppError && error.code === "AI_MALFORMED" && attempt < 1) {
@@ -117,6 +139,10 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
         break;
       }
     }
+    const lastMessage = lastError instanceof Error ? lastError.message.toLowerCase() : "";
+    const primaryMissing =
+      lastMessage.includes("not found") || lastMessage.includes("404") || googleStatus(lastError) === 404;
+    if (!primaryMissing) break;
   }
 
   if (lastError instanceof AppError) throw lastError;

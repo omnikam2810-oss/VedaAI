@@ -39,7 +39,7 @@ Progress is streamed as NDJSON. Files stay in memory for that session. Refreshin
 ## Stack
 
 - Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS
-- Google Gemini API (`gemini-2.5-flash`, fallback `gemini-2.0-flash`)
+- Google Gemini API (`gemini-3.6-flash`, fallback `gemini-flash-latest`)
 - react-pdf / PDF.js, pdf-lib, sharp
 - Zod for AI JSON validation
 - Vitest for mapping, files, coordinates, and demo cases
@@ -57,7 +57,7 @@ Put a Gemini API key in `.env` (or `.env.local`):
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.6-flash
 ```
 
 ```bash

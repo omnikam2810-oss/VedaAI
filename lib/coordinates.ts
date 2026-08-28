@@ -124,9 +124,82 @@ export function overlayStyle(region: AnswerRegion): {
   };
 }
 
+const LABEL_PAD_X = 0.03;
+const EDGE_INSET_Y = 0.012;
+const NEIGHBOR_GAP = 0.01;
+const MIN_HIGHLIGHT_HEIGHT = 0.035;
+
+function overlapsHorizontally(
+  left: number,
+  right: number,
+  other: { normalizedX: number; normalizedWidth: number },
+): boolean {
+  const otherRight = other.normalizedX + other.normalizedWidth;
+  return left < otherRight - 0.01 && right > other.normalizedX + 0.01;
+}
+
+/**
+ * Tighten a Gemini box so it covers this answer (including "Ans. N") without
+ * sitting on the previous or next answer on the same page.
+ */
+export function fitHighlightRegion(region: AnswerRegion, neighbors: AnswerRegion[]): AnswerRegion {
+  let left = clamp(region.normalizedX - LABEL_PAD_X, 0, 1);
+  let right = clamp(region.normalizedX + region.normalizedWidth + 0.01, 0, 1);
+  let top = clamp(region.normalizedY + EDGE_INSET_Y, 0, 1);
+  let bottom = clamp(region.normalizedY + region.normalizedHeight - EDGE_INSET_Y, 0, 1);
+
+  if (bottom - top < MIN_HIGHLIGHT_HEIGHT) {
+    top = region.normalizedY;
+    bottom = region.normalizedY + region.normalizedHeight;
+  }
+
+  const others = neighbors.filter(
+    (other) =>
+      other.reliable &&
+      other.page === region.page &&
+      (Math.abs(other.normalizedY - region.normalizedY) > 0.002 ||
+        Math.abs(other.normalizedHeight - region.normalizedHeight) > 0.002 ||
+        Math.abs(other.normalizedX - region.normalizedX) > 0.002),
+  );
+
+  for (const other of others) {
+    if (!overlapsHorizontally(left, right, other)) continue;
+    const otherTop = other.normalizedY;
+    const otherBottom = other.normalizedY + other.normalizedHeight;
+    const mid = (top + bottom) / 2;
+    const otherMid = (otherTop + otherBottom) / 2;
+
+    if (otherMid <= mid) {
+      const limit = otherBottom + NEIGHBOR_GAP;
+      if (limit < bottom - MIN_HIGHLIGHT_HEIGHT) {
+        top = Math.max(top, limit);
+      }
+    } else {
+      const limit = otherTop - NEIGHBOR_GAP;
+      if (limit > top + MIN_HIGHLIGHT_HEIGHT) {
+        bottom = Math.min(bottom, limit);
+      }
+    }
+  }
+
+  return fromNormalizedFractions({
+    page: region.page,
+    normalizedX: left,
+    normalizedY: top,
+    normalizedWidth: Math.max(0.04, right - left),
+    normalizedHeight: Math.max(MIN_HIGHLIGHT_HEIGHT, bottom - top),
+    pageWidth: region.width > 0 ? region.width / Math.max(region.normalizedWidth, 0.0001) : 1,
+    pageHeight: region.height > 0 ? region.height / Math.max(region.normalizedHeight, 0.0001) : 1,
+  });
+}
+
 export function highlightFromAnswer(
   answer: { regions: AnswerRegion[] },
   label: string,
+  neighbors: Array<{ regions: AnswerRegion[] }> = [],
 ): Array<{ region: AnswerRegion; label: string }> {
-  return answer.regions.filter((region) => region.reliable).map((region) => ({ region, label }));
+  const otherRegions = neighbors.flatMap((item) => item.regions.filter((region) => region.reliable));
+  return answer.regions
+    .filter((region) => region.reliable)
+    .map((region) => ({ region: fitHighlightRegion(region, otherRegions), label }));
 }

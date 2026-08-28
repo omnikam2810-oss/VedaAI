@@ -34,8 +34,8 @@ Rules:
 1. Never invent answer content. If handwriting is unreadable, set text to a short note that it is unreadable, unreadable=true, and confidence below 0.55.
 2. Segment answers logically. Do not assume one page equals one answer.
 3. If the student wrote a question number (Q2, 11(a), Ans: 5, etc.), put it in questionReference using the printed number. If none is visible, questionReference must be null. Never guess a missing number.
-4. Capture every distinct answer region. Coordinates MUST be normalized 0-1 fractions of that page, origin top-left.
-5. Do not invent coordinates. If a region cannot be located reliably, omit it or set reliable=false. Never highlight the whole page unless the answer truly fills the page.
+4. Capture every distinct answer region. Coordinates MUST be normalized 0-1 fractions of that page, origin top-left. Include the handwritten "Ans." / "Q" label. Put the top and bottom edges in the blank space between answers — do not overlap the previous or next answer.
+5. Do not invent coordinates. If a region cannot be located reliably, omit it or set reliable=false. Never highlight the whole page unless the answer truly fills the page. Never return a box that covers two different answers.
 6. Multi-page continuations are separate region entries on the same answer, or a following answer with continuedFromPrevious=true and the same questionReference.
 7. Preserve student wording. Do not polish or complete the answer.
 8. page is 1-based.

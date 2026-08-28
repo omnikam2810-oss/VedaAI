@@ -183,7 +183,7 @@ export function AnswerHighlight({
       )}
       style={overlayStyle(region)}
     >
-      <span className="absolute -top-5 left-0 rounded-t-md bg-[#22c55e] px-2 py-0.5 text-[11px] font-semibold text-white">
+      <span className="absolute left-1 top-1 rounded bg-[#22c55e] px-2 py-0.5 text-[11px] font-semibold text-white">
         {label}
       </span>
     </div>

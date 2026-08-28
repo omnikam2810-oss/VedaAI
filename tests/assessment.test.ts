@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isReliableRegion, fromNormalizedFractions } from "@/lib/coordinates";
+import { isReliableRegion, fromNormalizedFractions, fitHighlightRegion } from "@/lib/coordinates";
 import { displayQuestionNumber, extractQuestionReference, normalizeQuestionNumber } from "@/lib/extraction/numbering";
 import { validateUpload } from "@/lib/files/validate";
 import { applySemanticMatches, explicitMap, mergeContinuedAnswers, unansweredMappings, markUnmatchedAnswers } from "@/lib/mapping/answerMapper";
@@ -230,10 +230,17 @@ describe("files and AI failures", () => {
     await expect(validateUpload(file, "Question paper")).rejects.toThrow(/corrupted|supported/i);
   });
 
-  it("maps API failures to retryable errors", () => {
-    const error = toAppError(new Error("429 resource exhausted"));
+  it("maps quota errors without leaking SDK text", () => {
+    const error = toAppError(new Error("You exceeded your current quota"));
     expect(error.code).toBe("AI_RATE_LIMIT");
-    expect(error.retryable).toBe(true);
+    expect(error.message).toMatch(/quota|rate/i);
+  });
+
+  it("maps missing-model errors to a current Gemini model hint", () => {
+    const error = toAppError(new Error("This model models/gemini-2.5-flash is no longer available to new users. 404"));
+    expect(error.code).toBe("AI_UNAVAILABLE");
+    expect(error.message).toMatch(/gemini-3\.6-flash/i);
+    expect(error.message).not.toMatch(/gemini-2\.5-flash/i);
   });
 
   it("does not expose raw SDK messages to the client", () => {
@@ -253,6 +260,44 @@ describe("coordinates and duplicates", () => {
     expect(isReliableRegion({ normalizedX: 0, normalizedY: 0, normalizedWidth: 1, normalizedHeight: 1 })).toBe(false);
     expect(isReliableRegion({ normalizedX: 0.1, normalizedY: 0.1, normalizedWidth: 0.01, normalizedHeight: 0.01 })).toBe(false);
     expect(isReliableRegion({ normalizedX: 0.1, normalizedY: 0.2, normalizedWidth: 0.8, normalizedHeight: 0.25 })).toBe(true);
+  });
+
+  it("clips a highlight so it does not sit on the next answer", () => {
+    const current = fromNormalizedFractions({
+      page: 1,
+      normalizedX: 0.08,
+      normalizedY: 0.4,
+      normalizedWidth: 0.84,
+      normalizedHeight: 0.18,
+    });
+    const below = fromNormalizedFractions({
+      page: 1,
+      normalizedX: 0.08,
+      normalizedY: 0.52,
+      normalizedWidth: 0.84,
+      normalizedHeight: 0.12,
+    });
+    const fitted = fitHighlightRegion(current, [below]);
+    expect(fitted.normalizedY + fitted.normalizedHeight).toBeLessThanOrEqual(below.normalizedY - 0.005);
+  });
+
+  it("clips a highlight so it does not sit on the previous answer", () => {
+    const above = fromNormalizedFractions({
+      page: 1,
+      normalizedX: 0.08,
+      normalizedY: 0.3,
+      normalizedWidth: 0.84,
+      normalizedHeight: 0.12,
+    });
+    const current = fromNormalizedFractions({
+      page: 1,
+      normalizedX: 0.08,
+      normalizedY: 0.38,
+      normalizedWidth: 0.84,
+      normalizedHeight: 0.16,
+    });
+    const fitted = fitHighlightRegion(current, [above]);
+    expect(fitted.normalizedY).toBeGreaterThanOrEqual(above.normalizedY + above.normalizedHeight);
   });
 
   it("detects duplicate mappings", () => {

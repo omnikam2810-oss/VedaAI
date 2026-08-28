@@ -40,6 +40,8 @@ export function AppShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const collapsed = variant !== "upload";
   const darkRail = variant === "assessment";
 
@@ -51,13 +53,22 @@ export function AppShell({
         darkRail={darkRail}
         className="hidden md:flex"
         onHelp={() => setHelpOpen(true)}
+        onNotice={setNotice}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Header
           onMenu={() => setMobileOpen(true)}
           onHelp={() => setHelpOpen(true)}
-          onNotes={() => setNotesOpen((value) => !value)}
+          onNotes={() => {
+            setProfileOpen(false);
+            setNotesOpen((value) => !value);
+          }}
           notesOpen={notesOpen}
+          profileOpen={profileOpen}
+          onProfile={() => {
+            setNotesOpen(false);
+            setProfileOpen((value) => !value);
+          }}
         />
         <main className="mt-2 min-h-0 flex-1 overflow-hidden rounded-[24px] bg-white shadow-[0_8px_30px_rgba(0,0,0,0.04)]">
           {children}
@@ -67,11 +78,25 @@ export function AppShell({
         <div className="fixed inset-0 z-50 md:hidden">
           <button className="absolute inset-0 bg-black/30" aria-label="Close menu" onClick={() => setMobileOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-[280px] p-2">
-            <Sidebar variant="upload" collapsed={false} darkRail={false} onNavigate={() => setMobileOpen(false)} onHelp={() => { setMobileOpen(false); setHelpOpen(true); }} />
+            <Sidebar
+              variant="upload"
+              collapsed={false}
+              darkRail={false}
+              onNavigate={() => setMobileOpen(false)}
+              onHelp={() => {
+                setMobileOpen(false);
+                setHelpOpen(true);
+              }}
+              onNotice={(message) => {
+                setMobileOpen(false);
+                setNotice(message);
+              }}
+            />
           </div>
         </div>
       ) : null}
       {helpOpen ? <HelpModal onClose={() => setHelpOpen(false)} /> : null}
+      {notice ? <NoticeModal message={notice} onClose={() => setNotice(null)} /> : null}
     </div>
   );
 }
@@ -83,6 +108,7 @@ function Sidebar({
   className,
   onNavigate,
   onHelp,
+  onNotice,
 }: {
   variant: ShellVariant;
   collapsed: boolean;
@@ -90,10 +116,11 @@ function Sidebar({
   className?: string;
   onNavigate?: () => void;
   onHelp?: () => void;
+  onNotice?: (message: string) => void;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { startProcessing, result } = useAssessment();
+  const { startProcessing } = useAssessment();
 
   return (
     <aside
@@ -138,11 +165,17 @@ function Sidebar({
                   });
                   return;
                 }
-                if (item.label === "My Classroom" || item.label === "Assignments") {
-                  router.push(result ? "/assessment" : "/");
+                if (item.label === "My Classroom") {
+                  onNotice?.(
+                    "My Classroom is part of the full VedaAI product. This assignment uses Exams to upload a question paper and map answers.",
+                  );
                   return;
                 }
-                router.push(item.href.split("?")[0]);
+                if (item.label === "Assignments") {
+                  router.push("/assessment");
+                  return;
+                }
+                router.push("/");
               }}
               className={cn(
                 "flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[14px] transition",
@@ -213,11 +246,15 @@ function Header({
   onHelp,
   onNotes,
   notesOpen,
+  profileOpen,
+  onProfile,
 }: {
   onMenu: () => void;
   onHelp: () => void;
   onNotes: () => void;
   notesOpen: boolean;
+  profileOpen: boolean;
+  onProfile: () => void;
 }) {
   const router = useRouter();
   const { result, processing } = useAssessment();
@@ -252,7 +289,7 @@ function Header({
         <span className="hidden rounded-full p-2 text-[#444] md:inline-flex" aria-hidden>
           <SparkleIcon className="h-4 w-4 text-[#ff6b4a]" />
         </span>
-        <button type="button" className="hidden items-center gap-2 rounded-full py-1 pl-1 pr-2 hover:bg-[#f7f7f7] md:flex">
+        <button type="button" className="hidden items-center gap-2 rounded-full py-1 pl-1 pr-2 hover:bg-[#f7f7f7] md:flex" onClick={onProfile} aria-label="Teacher profile">
           <Avatar />
           <span className="text-sm font-medium">{TEACHER_NAME}</span>
           <ChevronDown className="h-4 w-4 text-[#777]" />
@@ -262,6 +299,13 @@ function Header({
           <Menu className="h-5 w-5" />
         </button>
       </div>
+      {profileOpen ? (
+        <div className="absolute right-4 top-14 z-20 w-72 rounded-2xl border border-[#eee] bg-white p-3 shadow-lg">
+          <p className="text-sm font-semibold">{TEACHER_NAME}</p>
+          <p className="mt-1 text-sm text-[#666]">{SCHOOL_NAME}</p>
+          <p className="mt-2 text-xs text-[#888]">Signed in for this local session. There is no separate account page in this assignment.</p>
+        </div>
+      ) : null}
       {notesOpen ? (
         <div className="absolute right-4 top-14 z-20 w-72 rounded-2xl border border-[#eee] bg-white p-3 shadow-lg">
           <p className="text-sm font-semibold">Notifications</p>
@@ -291,6 +335,21 @@ function SchoolCrest({ className }: { className?: string }) {
     <span className={cn("inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[#ddd] bg-white text-[10px] font-bold text-[#1c4c8c]", className)}>
       DPS
     </span>
+  );
+}
+
+function NoticeModal({ message, onClose }: { message: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button className="absolute inset-0 bg-black/30" aria-label="Close" onClick={onClose} />
+      <div className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
+        <h2 className="text-lg font-semibold">Not in this assignment</h2>
+        <p className="mt-3 text-sm leading-6 text-[#444]">{message}</p>
+        <button type="button" className="mt-5 rounded-full bg-[#1c1c1c] px-4 py-2 text-sm font-semibold text-white" onClick={onClose}>
+          Back to Exams
+        </button>
+      </div>
+    </div>
   );
 }
 

@@ -44,14 +44,15 @@ export function AssessmentDashboard() {
   const unmapped = result?.answers.find((answer) => answer.id === selectedUnmappedId);
 
   const highlights = useMemo(() => {
-    if (unmapped) return highlightFromAnswer(unmapped, "Unmapped");
+    const others = result?.answers.filter((answer) => answer.id !== (unmapped?.id ?? selectedAnswer?.id)) ?? [];
+    if (unmapped) return highlightFromAnswer(unmapped, "Unmapped", others);
     if (selectedAnswer && selectedQuestion && selectedMapping?.status !== "unanswered") {
-      return highlightFromAnswer(selectedAnswer, `Q${selectedQuestion.displayNumber.replace(" ", "")}`);
+      return highlightFromAnswer(selectedAnswer, `Q${selectedQuestion.displayNumber.replace(" ", "")}`, others);
     }
     return [];
-  }, [selectedAnswer, selectedMapping?.status, selectedQuestion, unmapped]);
+  }, [result?.answers, selectedAnswer, selectedMapping?.status, selectedQuestion, unmapped]);
 
-  const regions = unmapped?.regions.filter((region) => region.reliable) ?? selectedAnswer?.regions.filter((region) => region.reliable) ?? [];
+  const regions = highlights.map((item) => item.region);
   const activeRegion = regions[Math.min(regionIndex, Math.max(regions.length - 1, 0))];
 
   if (!result && !processing) {

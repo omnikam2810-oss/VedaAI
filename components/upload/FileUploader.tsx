@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Upload, X } from "lucide-react";
+import { ImageIcon, Upload, X } from "lucide-react";
 import { MAX_FILE_BYTES } from "@/lib/constants";
 import { formatBytes } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -89,7 +89,7 @@ export function FileUploader({ label, accent, file, onFile, error }: FileUploade
       />
       {file ? (
         <div className="relative flex w-full max-w-[280px] items-center gap-3 rounded-2xl bg-white px-3 py-3 shadow-[0_4px_16px_rgba(0,0,0,0.06)]">
-          <PdfGlyph />
+          {file.type.includes("pdf") || file.name.toLowerCase().endsWith(".pdf") ? <PdfGlyph /> : <ImageIcon className="h-9 w-9 text-[#6b7280]" />}
           <div className="min-w-0">
             <p className="truncate text-sm font-medium">{file.name.replace(/\.[^.]+$/, "")}</p>
             <p className="text-xs text-[#8b8b8b]">

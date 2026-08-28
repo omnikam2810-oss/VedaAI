@@ -18,8 +18,18 @@ export const ALLOWED_MIME_TYPES = [
 export const HIGH_CONFIDENCE = 0.8;
 export const REVIEW_CONFIDENCE = 0.55;
 
-export const DEFAULT_MODEL = "gemini-2.5-flash";
-export const FALLBACK_MODEL = "gemini-2.0-flash";
+export const DEFAULT_MODEL = "gemini-3.6-flash";
+export const FALLBACK_MODEL = "gemini-flash-latest";
+
+/** Model IDs Google 404s for new API keys ahead of shutdown. */
+export const RETIRED_MODELS = new Set([
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+]);
 
 export const INITIAL_STEPS: ProcessingStep[] = [
   { id: "question_upload", label: "Question Paper", status: "pending" },
