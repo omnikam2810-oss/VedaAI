@@ -1,222 +1,86 @@
-# VedaAI — Assessment Extraction & Answer Mapping
+# VedaAI
 
-A production-quality MVP that helps a teacher upload a printed question paper and a handwritten student answer sheet, then see **which question was answered, where the answer is on the page, and which questions were left unanswered**.
+Teacher tool for exam papers: upload a **question paper** and a **student answer sheet**, extract questions, map each answer to a question, and highlight the answer region on the page.
 
-This is not a generic dashboard. It is a focused exam-mapping product: extraction, mapping, exact highlighting, and honest uncertainty.
+This is a Next.js web app for the VedaAI hiring assignment. It is not a full school platform (no login, no database, no class roster).
 
-## Problem Statement
+## What it does
 
-Teachers spend hours pairing handwritten scripts with the question paper. Students answer out of order, skip questions, continue across pages, and write unclear numbers. Manual mapping is slow and easy to get wrong. Existing tools often extract text only, with no reliable spatial link back to the script.
+1. Upload a question paper and an answer sheet (PDF, PNG, JPG, or JPEG, max 10MB / 30 pages).
+2. Gemini reads the documents on the server.
+3. Questions are listed in printed order, including labelled parts such as `7(a)` and `7(b)`.
+4. Answers are mapped by written question numbers first, then by meaning if a number is missing.
+5. Clicking a question opens the matching page and draws a box on that answer (not the whole page).
+6. Unanswered questions, unmapped text, low-confidence items, and mapping conflicts are shown for teacher review.
 
-## Solution
+Optional scores appear only when the paper printed marks and grading succeeded. If marks are unknown, the UI shows **Score unavailable**. The app does not invent marks or answer text.
 
-VedaAI runs a staged pipeline:
+## How processing works
 
-```text
-Upload
-→ Preprocessing
-→ Question extraction
-→ Handwritten answer extraction
-→ Hybrid mapping
-→ Validation
-→ Spatial highlighting
-→ Optional grading / feedback
-```
-
-The teacher then works in a two-pane assessment view: extracted questions on the left, the answer sheet on the right. Selecting a question navigates to the mapped region and draws a green overlay on that answer only.
-
-## Features
-
-- Upload question paper and answer sheet (PDF, PNG, JPG, JPEG)
-- Meaningful processing progress (never a bare “Loading…”)
-- Question extraction that preserves printed order and labelled sub-parts
-- Handwritten answer extraction with page + region metadata
-- Hybrid mapping: explicit question numbers first, semantic matching second
-- Out-of-order answers mapped without reordering the question list
-- Unanswered questions and unmapped answers called out explicitly
-- Multi-page answer regions with region navigation
-- Exact highlight overlay (not a full-page wash)
-- Confidence labels and manual review for weak mappings
-- Optional AI grading and feedback, never invented marks
-- Assessment summary
-- Demo mode for UI and mapping review without consuming Gemini quota
-
-## Screenshots
-
-The UI follows the official VedaAI hiring assignment screens:
-
-1. Upload empty state
-2. Upload with both files attached and **Start Mapping →** enabled
-3. Extracting state with sparkle loader and step-by-step progress
-4. Desktop question list + answer sheet with green region highlight
-5. Mobile tabs: Questions / Answer Sheet
-
-Run the app locally and capture these same screens from the live product.
-
-## Architecture
+Live upload (`POST /api/assessment/process`):
 
 ```text
-Browser (Next.js App Router)
-  Upload files (kept in memory / object URLs)
-        │
-        ▼
-POST /api/assessment/process   (NDJSON progress stream)
-        │
-        ├─ File validation (extension + MIME magic bytes + size)
-        ├─ Preprocessing (PDF metadata, image rotate/enhance for AI only)
-        ├─ Gemini question extraction (Prompt A)
-        ├─ Gemini handwritten answer extraction (Prompt B)
-        ├─ Deterministic explicit-number mapping
-        ├─ Gemini semantic mapping for leftovers (Prompt C)
-        ├─ Zod + business validation
-        └─ Optional Gemini grading (Prompt D)
-        │
-        ▼
-Assessment dashboard
-  Question list  |  PDF.js / image viewer + highlight overlay
+Validate files → preprocess → extract questions → extract answers
+→ map (explicit numbers, then semantic leftovers) → validate → optional grading
 ```
 
-Original documents used for rendering are not rewritten. AI may receive an enhanced *copy* of a low-quality image.
+Progress is streamed as NDJSON. Files stay in memory for that session. Refreshing the browser clears the assessment.
 
-Storage is in-memory / session-only. Nothing is persisted to a database.
+**Demo mode** (`Preview with development demo data`) uses a fixed Class 10 Science dataset and generated PDFs. It does not call Gemini. It is labelled in the UI as demo data. The demo script uses italic print, not real handwriting.
 
-## Tech Stack
+## Mapping and highlighting
 
-| Layer | Choice | Why |
-| --- | --- | --- |
-| UI | Next.js App Router, React, TypeScript | Server routes + polished client workspace |
-| Styling | Tailwind CSS | Matches the Figma spacing, pills, and layout quickly |
-| Documents | react-pdf / PDF.js, pdf-lib, sharp | Render PDFs, count pages, correct image orientation |
-| AI | Google Gemini (`gemini-2.5-flash`) | Strong document/vision JSON extraction at reasonable cost |
-| Validation | Zod | Never trust raw model output |
-| Tests | Vitest | Mapping, numbering, coordinates, malformed AI, files |
-| Deploy | Vercel | Fits the Next.js route-handler architecture |
+- Question list order never follows the student’s writing order.
+- Statuses: `mapped`, `unanswered`, `review_required`, `conflict`. Leftover answers are `unmatched`.
+- Highlight boxes are normalized 0–1 coordinates. Tiny, full-page, or invalid boxes are not drawn.
+- Multi-page answers use **Previous region / Next region**.
+- Confidence below 0.8 is marked for review. Unreadable handwriting is not completed by the model.
 
-## AI Model
+## Stack
 
-- **Provider:** Google Gemini API
-- **Default model:** `gemini-2.5-flash` (override with `GEMINI_MODEL`)
-- **Fallback:** `gemini-2.0-flash` if the primary model is unavailable
-- **Why:** Multimodal PDF/image input, structured JSON, low latency for an interactive teacher workflow
-- **Used for:** question extraction, handwritten answer extraction, leftover semantic mapping, optional grading
-- **Not used for:** numbering regex, page bounds, duplicate detection, coordinate clipping, UI state
+- Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS
+- Google Gemini API (`gemini-2.5-flash`, fallback `gemini-2.0-flash`)
+- react-pdf / PDF.js, pdf-lib, sharp
+- Zod for AI JSON validation
+- Vitest for mapping, files, coordinates, and demo cases
 
-The API key is read only on the server from `GEMINI_API_KEY`. It is never sent to the browser.
+The API key is server-side only (`GEMINI_API_KEY`). It is never sent to the browser.
 
-## Extraction
-
-Question extraction asks Gemini for printed items in order, with original numbering. Labelled sub-parts such as `13(a)` and `13(b)` become two questions. Marks are copied only when printed; otherwise `maxMarks` is `null`.
-
-Answer extraction asks for student text, optional question references, page numbers, and **normalized 0–1 bounding boxes** (top-left origin). Unreadable handwriting is flagged `review_required` instead of being completed by the model.
-
-## Answer Mapping
-
-1. **Explicit number detection** — `Q2`, `11(a)`, `Ans: 7(a)`, and similar forms are normalized and matched.
-2. **Semantic matching** — leftover answers are compared to leftover questions. Weak matches are not silently accepted.
-3. **Coverage** — every question gets a mapping row: `mapped`, `review_required`, `conflict`, or `unanswered`. Leftover answers become `unmatched`.
-
-Questions always stay in printed order, even if the student answered Q5 first.
-
-## Spatial Highlighting
-
-Regions are stored as normalized fractions plus original page size when known:
-
-```text
-Model coordinates
-  → normalized 0–1 box
-  → reliability check
-  → CSS overlay on the rendered page
-```
-
-A box is rejected (no fake highlight) if it is missing, tiny, outside the page, or effectively the entire page. Multi-page answers expose **Previous region / Next region**.
-
-## Edge Cases
-
-| Case | Behaviour |
-| --- | --- |
-| Out-of-order answers | Mapped by number/semantics; question list stays 1…n |
-| Unanswered | `unanswered`; click does not highlight |
-| Unmapped answer | Listed separately; teacher can inspect its region |
-| Multi-page answer | Multiple regions; viewer jumps per region |
-| Low confidence | `review_required` with confirm / remap / mark unanswered |
-| Poor handwriting | Low confidence or unreadable flag, not invented text |
-| Invalid file | Clear error (type, size, magic-byte mismatch, empty) |
-| AI failure | Streamed error + retry; demo mode still works |
-| Malformed AI JSON | Zod rejects; request retried then failed honestly |
-| Duplicate mapping | `conflict` for teacher review |
-| Rotated scan | `sharp.rotate()` uses EXIF before AI sees the copy |
-
-## Assumptions
-
-- One question paper and one student script per session
-- Papers are at most 10MB and 30 pages
-- Gemini can see the uploaded PDF or image; extremely faint scans may need review
-- No login or database is required for this MVP
-- Demo PDFs approximate handwriting with italic text so highlighting can be demonstrated without quota
-
-## Limitations
-
-- Handwriting recognition is not perfect. The product prefers **review_required** over a confident wrong answer.
-- Bounding boxes depend on the vision model. Unreliable boxes are not drawn.
-- Optional scores appear only when question marks were extracted and grading succeeded.
-- Vercel hobby plans cap serverless duration and body size; large scripts may need a Pro project or local `next start`.
-- Documents live in memory for the session only. Refreshing the assessment page without demo files clears the live upload.
-
-## Privacy
-
-Student scripts can contain personal data. This MVP:
-
-- Does not write uploads to a database or public bucket
-- Keeps files in memory for the request and in browser object URLs for viewing
-- Does not log answer text
-- Sends documents to Gemini only for the current processing run
-
-Do not use real student PII in shared demos.
-
-## Local Setup
+## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local
-# put your Gemini key in .env.local
+cp .env.example .env
+```
+
+Put a Gemini API key in `.env` (or `.env.local`):
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+```bash
 npm run demo:pdfs
-npm test
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-- Upload two files and click **Start Mapping →**
-- Or click **Preview with development demo data** to exercise mapping, unanswered Q4, unmapped text, multi-page Q2, and low-confidence 7(b)
-
-## Environment Variables
-
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-2.5-flash
-# GEMINI_TIMEOUT_MS=45000
-```
-
-Never commit `.env.local`. `.env.example` has no secrets.
-
-## Deployment
-
-1. Push this repository to GitHub (without `.env.local`).
-2. Import the project in Vercel.
-3. Set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`) in Vercel environment variables.
-4. Deploy. Confirm `/` loads, demo mode runs, and a real upload processes if the key is valid.
-
-```bash
-npm run build
-npx vercel --prod
-```
-
-The process route `maxDuration` is 300 seconds so multi-step Gemini extraction can finish.
-
-## Tests
+- **Live extraction:** upload both files → **Start Mapping →** (needs a valid key)
+- **Demo:** **Preview with development demo data** (no Gemini quota)
 
 ```bash
 npm test
+npm run lint
+npm run typecheck
+npm run build
 ```
 
-Coverage includes ordered mapping, out-of-order mapping, sub-parts, unanswered, unmatched, multi-page regions, low confidence, invalid files, AI error mapping, Zod rejection, invalid coordinates, duplicate mappings, and demo dataset edge cases.
+## Limits
+
+- One question paper and one answer sheet per run
+- Handwriting accuracy depends on Gemini and scan quality; unclear writing goes to review
+- Highlight alignment depends on the model’s boxes
+- No persistence; session only
+- Do not commit `.env` / `.env.local`. Do not upload real student personal data to shared demos
