@@ -17,7 +17,7 @@ export async function extractAnswers(document: PreparedDocument): Promise<{ answ
   const result = await generateValidatedJson({
     prompt: ANSWER_EXTRACTION_PROMPT,
     documents: [{ mime: document.aiMime, bytes: document.aiBytes, filename: document.meta.filename }],
-    extraText: `The answer sheet has ${document.meta.pageCount} page(s). Coordinates are fractions of each page, origin top-left.`,
+    extraText: `The answer sheet has ${document.meta.pageCount} page(s). Coordinates are fractions of each page, origin top-left. Question numbers may be in the left margin. If the student copied the question, extract the answer that follows it.`,
     schema: aiAnswerExtractionSchema,
     label: "answer extraction",
   });

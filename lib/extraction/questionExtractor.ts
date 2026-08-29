@@ -15,7 +15,7 @@ export async function extractQuestions(document: PreparedDocument): Promise<{ qu
   const result = await generateValidatedJson({
     prompt: QUESTION_EXTRACTION_PROMPT,
     documents: [{ mime: document.aiMime, bytes: document.aiBytes, filename: document.meta.filename }],
-    extraText: `The question paper has ${document.meta.pageCount} page(s). Use only those page numbers.`,
+    extraText: `The question paper has ${document.meta.pageCount} page(s). Use only those page numbers. If a section shows 5 × 4 = 20, each question in that section is worth 4 marks, not 20.`,
     schema: aiQuestionExtractionSchema,
     label: "question extraction",
   });

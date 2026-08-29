@@ -152,7 +152,9 @@ function Sidebar({
       <nav className="mt-6 flex flex-1 flex-col gap-1" aria-label="Main">
         {NAV.map((item) => {
           const Icon = item.icon;
-          const active = item.label === "Exams" && (pathname === "/" || pathname === "/assessment");
+          const active =
+            (item.label === "Exams" && pathname === "/") ||
+            (item.label === "Assignments" && pathname === "/assessment");
           return (
             <button
               key={item.label}
@@ -318,6 +320,13 @@ function Header({
           </p>
         </div>
       ) : null}
+      {profileOpen ? (
+        <div className="absolute right-4 top-14 z-20 w-72 rounded-2xl border border-[#eee] bg-white p-3 shadow-lg">
+          <p className="text-sm font-semibold">{TEACHER_NAME}</p>
+          <p className="mt-1 text-sm text-[#666]">{SCHOOL_NAME}</p>
+          <p className="mt-2 text-xs text-[#888]">This assignment is an exam mapping workspace. There is no login.</p>
+        </div>
+      ) : null}
     </header>
   );
 }
@@ -341,9 +350,12 @@ function SchoolCrest({ className }: { className?: string }) {
 function NoticeModal({ message, onClose }: { message: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button className="absolute inset-0 bg-black/30" aria-label="Close" onClick={onClose} />
+      <button className="absolute inset-0 bg-black/30" aria-label="Close notice" onClick={onClose} />
       <div className="relative w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
-        <h2 className="text-lg font-semibold">Not in this assignment</h2>
+        <button type="button" className="absolute right-4 top-4 rounded-full p-1 hover:bg-[#f4f4f4]" onClick={onClose} aria-label="Close">
+          <X className="h-4 w-4" />
+        </button>
+        <h2 className="text-lg font-semibold">Not available in this assignment</h2>
         <p className="mt-3 text-sm leading-6 text-[#444]">{message}</p>
         <button type="button" className="mt-5 rounded-full bg-[#1c1c1c] px-4 py-2 text-sm font-semibold text-white" onClick={onClose}>
           Back to Exams

@@ -1,4 +1,4 @@
-import { fromNormalizedFractions, isReliableRegion } from "@/lib/coordinates";
+import { expandHighlightRegion, fromNormalizedFractions } from "@/lib/coordinates";
 import { HIGH_CONFIDENCE } from "@/lib/constants";
 import { uniqueId } from "@/lib/utils";
 import type {
@@ -48,7 +48,10 @@ export function validateAnswers(answers: Answer[], pageCount: number): Answer[] 
       .filter((region) => region.page >= 1 && region.page <= pageCount)
       .map((region) => {
         const normalized = fromNormalizedFractions(region);
-        return { ...normalized, reliable: isReliableRegion(normalized) };
+        return {
+          ...normalized,
+          reliable: expandHighlightRegion(normalized).reliable,
+        };
       });
 
     const hasReliableRegion = regions.some((region) => region.reliable);

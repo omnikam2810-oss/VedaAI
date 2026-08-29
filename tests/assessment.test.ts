@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { isReliableRegion, fromNormalizedFractions, fitHighlightRegion } from "@/lib/coordinates";
+import { isReliableRegion, fromNormalizedFractions, expandHighlightRegion, clipHighlightToNeighbors, highlightFromAnswer } from "@/lib/coordinates";
+import { marksPerQuestionFromFormula } from "@/lib/extraction/sectionMarks";
 import { displayQuestionNumber, extractQuestionReference, normalizeQuestionNumber } from "@/lib/extraction/numbering";
 import { validateUpload } from "@/lib/files/validate";
 import { applySemanticMatches, explicitMap, mergeContinuedAnswers, unansweredMappings, markUnmatchedAnswers } from "@/lib/mapping/answerMapper";
@@ -7,6 +8,7 @@ import { sniffMime } from "@/lib/files/sniff";
 import { parseStreamEvent, safeJsonParse } from "@/lib/utils";
 import { toAppError } from "@/lib/errors";
 import { applyManualMapping, detectDuplicateMappings, finalizeAssessment } from "@/lib/validation/business";
+import { scoreFromWrittenContent } from "@/lib/grading/grader";
 import { aiQuestionExtractionSchema } from "@/lib/validation/schemas";
 import { getDemoAssessment } from "@/lib/demo/dataset";
 import type { Answer, Mapping, Question } from "@/types/assessment";
@@ -63,6 +65,20 @@ describe("question number normalization", () => {
   it("treats labelled subparts as independent numbers", () => {
     expect(normalizeQuestionNumber("11(a)")).not.toBe(normalizeQuestionNumber("11(b)"));
     expect(normalizeQuestionNumber("13 (a)")).toBe("13(a)");
+  });
+});
+
+describe("section mark formulas", () => {
+  it("reads 5 × 4 = 20 as 4 marks per question, not 20", () => {
+    expect(marksPerQuestionFromFormula("5 × 4 = 20")).toBe(4);
+    expect(marksPerQuestionFromFormula("5x4=20")).toBe(4);
+    expect(marksPerQuestionFromFormula("3 × 10 = 30")).toBe(10);
+    expect(marksPerQuestionFromFormula("2 × 15 = 30")).toBe(15);
+  });
+
+  it("rejects formulas that do not multiply to the printed total", () => {
+    expect(marksPerQuestionFromFormula("5 × 4 = 21")).toBeNull();
+    expect(marksPerQuestionFromFormula("80 marks")).toBeNull();
   });
 });
 
@@ -243,6 +259,12 @@ describe("files and AI failures", () => {
     expect(error.message).not.toMatch(/gemini-2\.5-flash/i);
   });
 
+  it("maps quota errors without a generic processing-failed banner", () => {
+    const error = toAppError(new Error("You exceeded your current quota"));
+    expect(error.code).toBe("AI_RATE_LIMIT");
+    expect(error.message).toMatch(/quota|rate/i);
+  });
+
   it("does not expose raw SDK messages to the client", () => {
     const error = toAppError(new Error("upstream stack dump with internal token xyz"));
     expect(error.message).not.toMatch(/xyz|stack dump/i);
@@ -255,6 +277,39 @@ describe("files and AI failures", () => {
   });
 });
 
+describe("written-content scoring", () => {
+  it("does not award full marks on a 5-mark question with a thin answer", () => {
+    const awarded = scoreFromWrittenContent({
+      score: 5,
+      maxMarks: 5,
+      answerText: "Chlorophyll is a green pigment.",
+    });
+    expect(awarded.score).toBe(4);
+    expect(awarded.correctness).toBe("partial");
+  });
+
+  it("keeps full marks when the writing is complete enough", () => {
+    const awarded = scoreFromWrittenContent({
+      score: 5,
+      maxMarks: 5,
+      answerText:
+        "Photosynthesis occurs in chloroplasts. Carbon dioxide and water are converted into glucose and oxygen using sunlight and chlorophyll. The process stores energy in chemical bonds for the plant.",
+    });
+    expect(awarded.score).toBe(5);
+    expect(awarded.correctness).toBe("correct");
+  });
+
+  it("still allows full marks on a short 1-mark fact", () => {
+    const awarded = scoreFromWrittenContent({
+      score: 1,
+      maxMarks: 1,
+      answerText: "Arteries",
+    });
+    expect(awarded.score).toBe(1);
+    expect(awarded.correctness).toBe("correct");
+  });
+});
+
 describe("coordinates and duplicates", () => {
   it("rejects invented whole-page or tiny boxes", () => {
     expect(isReliableRegion({ normalizedX: 0, normalizedY: 0, normalizedWidth: 1, normalizedHeight: 1 })).toBe(false);
@@ -262,42 +317,80 @@ describe("coordinates and duplicates", () => {
     expect(isReliableRegion({ normalizedX: 0.1, normalizedY: 0.2, normalizedWidth: 0.8, normalizedHeight: 0.25 })).toBe(true);
   });
 
-  it("clips a highlight so it does not sit on the next answer", () => {
-    const current = fromNormalizedFractions({
+  it("expands a tight Gemini box to cover the answer label and last line", () => {
+    const tight = fromNormalizedFractions({
       page: 1,
-      normalizedX: 0.08,
+      normalizedX: 0.22,
       normalizedY: 0.4,
-      normalizedWidth: 0.84,
-      normalizedHeight: 0.18,
-    });
-    const below = fromNormalizedFractions({
-      page: 1,
-      normalizedX: 0.08,
-      normalizedY: 0.52,
-      normalizedWidth: 0.84,
+      normalizedWidth: 0.62,
       normalizedHeight: 0.12,
     });
-    const fitted = fitHighlightRegion(current, [below]);
-    expect(fitted.normalizedY + fitted.normalizedHeight).toBeLessThanOrEqual(below.normalizedY - 0.005);
+    const expanded = expandHighlightRegion(tight);
+    expect(expanded.normalizedX).toBeLessThan(tight.normalizedX);
+    expect(expanded.normalizedX + expanded.normalizedWidth).toBeGreaterThan(tight.normalizedX + tight.normalizedWidth);
   });
 
-  it("clips a highlight so it does not sit on the previous answer", () => {
-    const above = fromNormalizedFractions({
+  it("does not stretch a one-line answer through leftover blank lines", () => {
+    const oversized = fromNormalizedFractions({
       page: 1,
-      normalizedX: 0.08,
-      normalizedY: 0.3,
-      normalizedWidth: 0.84,
-      normalizedHeight: 0.12,
+      normalizedX: 0.1,
+      normalizedY: 0.4,
+      normalizedWidth: 0.8,
+      normalizedHeight: 0.18,
     });
-    const current = fromNormalizedFractions({
+    const next = fromNormalizedFractions({
       page: 1,
-      normalizedX: 0.08,
-      normalizedY: 0.38,
-      normalizedWidth: 0.84,
-      normalizedHeight: 0.16,
+      normalizedX: 0.1,
+      normalizedY: 0.62,
+      normalizedWidth: 0.8,
+      normalizedHeight: 0.05,
     });
-    const fitted = fitHighlightRegion(current, [above]);
-    expect(fitted.normalizedY).toBeGreaterThanOrEqual(above.normalizedY + above.normalizedHeight);
+    const fitted = clipHighlightToNeighbors(expandHighlightRegion(oversized), [next], "Ans. 4 (A) 1665");
+    expect(fitted.normalizedY + fitted.normalizedHeight).toBeLessThanOrEqual(next.normalizedY - 0.005);
+    expect(fitted.normalizedHeight).toBeLessThan(0.09);
+  });
+
+  it("clips using page position, not question order", () => {
+    const laterQuestion = fromNormalizedFractions({
+      page: 1,
+      normalizedX: 0.1,
+      normalizedY: 0.2,
+      normalizedWidth: 0.8,
+      normalizedHeight: 0.2,
+    });
+    const earlierQuestionBelow = fromNormalizedFractions({
+      page: 1,
+      normalizedX: 0.1,
+      normalizedY: 0.36,
+      normalizedWidth: 0.8,
+      normalizedHeight: 0.06,
+    });
+    const fitted = clipHighlightToNeighbors(expandHighlightRegion(laterQuestion), [earlierQuestionBelow], "Mitochondria produce energy.");
+    expect(fitted.normalizedY + fitted.normalizedHeight).toBeLessThanOrEqual(earlierQuestionBelow.normalizedY - 0.005);
+  });
+
+  it("maps Q9 to the math block, not the last line of Q8", () => {
+    const box = (y: number, height: number) =>
+      fromNormalizedFractions({ page: 1, normalizedX: 0.08, normalizedY: y, normalizedWidth: 0.84, normalizedHeight: height });
+    const q8 = {
+      text: "Mitochondria are known as the powerhouse of the cell because they generate most of the cell's supply of adenosine triphosphate (ATP), used as a source of chemical energy.",
+      regions: [box(0.52, 0.1)],
+    };
+    const q9 = {
+      text: "2x + 5 = 15 => 2x = 15 - 5 => 2x = 10 => x = 5",
+      regions: [box(0.61, 0.035)],
+    };
+    const q10 = {
+      text: "The water cycle consists of evaporation, condensation, precipitation, and collection. Water evaporates from oceans, condenses into clouds, falls as rain, and collects in rivers and lakes.",
+      regions: [box(0.78, 0.12)],
+    };
+    const q9Box = highlightFromAnswer(q9, "Q9", [q8, q10])[0]?.region;
+    const q8Box = highlightFromAnswer(q8, "Q8", [q9, q10])[0]?.region;
+    expect(q9Box).toBeDefined();
+    expect(q8Box).toBeDefined();
+    expect(q9Box!.normalizedY).toBeGreaterThanOrEqual(q8Box!.normalizedY + q8Box!.normalizedHeight - 0.002);
+    expect(q9Box!.normalizedHeight).toBeGreaterThan(0.07);
+    expect(q9Box!.normalizedY + q9Box!.normalizedHeight).toBeLessThanOrEqual(q10.regions[0]!.normalizedY + 0.002);
   });
 
   it("detects duplicate mappings", () => {
@@ -356,6 +449,8 @@ describe("reference extraction", () => {
   it("reads explicit student numbering", () => {
     expect(extractQuestionReference("Ans: 11(a) The answer")).toBe("11(a)");
     expect(extractQuestionReference("Q2. Photosynthesis")).toBe("2");
+    expect(extractQuestionReference("1. What were the causes of the French Revolution?")).toBe("1");
+    expect(extractQuestionReference("4. Briefly explain the Simon Commission.")).toBe("4");
   });
 });
 

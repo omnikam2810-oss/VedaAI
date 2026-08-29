@@ -124,82 +124,124 @@ export function overlayStyle(region: AnswerRegion): {
   };
 }
 
-const LABEL_PAD_X = 0.03;
-const EDGE_INSET_Y = 0.012;
-const NEIGHBOR_GAP = 0.01;
-const MIN_HIGHLIGHT_HEIGHT = 0.035;
+const LABEL_PAD_X = 0.08;
+const TRAIL_PAD_X = 0.03;
+const PACKED_GAP = 0.008;
+const MIN_HIGHLIGHT_HEIGHT = 0.03;
+const LINE_HEIGHT = 0.034;
 
-function overlapsHorizontally(
-  left: number,
-  right: number,
-  other: { normalizedX: number; normalizedWidth: number },
-): boolean {
-  const otherRight = other.normalizedX + other.normalizedWidth;
-  return left < otherRight - 0.01 && right > other.normalizedX + 0.01;
+function pageSize(region: AnswerRegion): { pageWidth: number; pageHeight: number } {
+  return {
+    pageWidth: region.width > 0 ? region.width / Math.max(region.normalizedWidth, 0.0001) : 1,
+    pageHeight: region.height > 0 ? region.height / Math.max(region.normalizedHeight, 0.0001) : 1,
+  };
 }
 
-/**
- * Tighten a Gemini box so it covers this answer (including "Ans. N") without
- * sitting on the previous or next answer on the same page.
- */
-export function fitHighlightRegion(region: AnswerRegion, neighbors: AnswerRegion[]): AnswerRegion {
-  let left = clamp(region.normalizedX - LABEL_PAD_X, 0, 1);
-  let right = clamp(region.normalizedX + region.normalizedWidth + 0.01, 0, 1);
-  let top = clamp(region.normalizedY + EDGE_INSET_Y, 0, 1);
-  let bottom = clamp(region.normalizedY + region.normalizedHeight - EDGE_INSET_Y, 0, 1);
+export function estimatedContentHeight(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return LINE_HEIGHT + 0.008;
+  const explicitLines = trimmed.split(/\n/).filter((line) => line.trim()).length;
+  const mathSteps = trimmed.split(/\s*(?:⇒|=>)\s*/).filter((part) => part.trim().length > 0).length;
+  const wrapped = Math.ceil(trimmed.replace(/\s+/g, " ").length / 46);
+  const lines = Math.max(explicitLines, mathSteps > 1 ? mathSteps : 1, wrapped, 1);
+  return clamp(0.01 + lines * LINE_HEIGHT, 0.038, 0.62);
+}
 
-  if (bottom - top < MIN_HIGHLIGHT_HEIGHT) {
-    top = region.normalizedY;
-    bottom = region.normalizedY + region.normalizedHeight;
-  }
-
-  const others = neighbors.filter(
-    (other) =>
-      other.reliable &&
-      other.page === region.page &&
-      (Math.abs(other.normalizedY - region.normalizedY) > 0.002 ||
-        Math.abs(other.normalizedHeight - region.normalizedHeight) > 0.002 ||
-        Math.abs(other.normalizedX - region.normalizedX) > 0.002),
-  );
-
-  for (const other of others) {
-    if (!overlapsHorizontally(left, right, other)) continue;
-    const otherTop = other.normalizedY;
-    const otherBottom = other.normalizedY + other.normalizedHeight;
-    const mid = (top + bottom) / 2;
-    const otherMid = (otherTop + otherBottom) / 2;
-
-    if (otherMid <= mid) {
-      const limit = otherBottom + NEIGHBOR_GAP;
-      if (limit < bottom - MIN_HIGHLIGHT_HEIGHT) {
-        top = Math.max(top, limit);
-      }
-    } else {
-      const limit = otherTop - NEIGHBOR_GAP;
-      if (limit > top + MIN_HIGHLIGHT_HEIGHT) {
-        bottom = Math.min(bottom, limit);
-      }
-    }
-  }
-
+/** Grow left for the Ans. N label. Height is decided by page layout. */
+export function expandHighlightRegion(region: AnswerRegion): AnswerRegion {
+  const left = clamp(region.normalizedX - LABEL_PAD_X, 0, 1);
+  const right = clamp(region.normalizedX + region.normalizedWidth + TRAIL_PAD_X, 0, 1);
   return fromNormalizedFractions({
     page: region.page,
     normalizedX: left,
-    normalizedY: top,
+    normalizedY: region.normalizedY,
     normalizedWidth: Math.max(0.04, right - left),
-    normalizedHeight: Math.max(MIN_HIGHLIGHT_HEIGHT, bottom - top),
-    pageWidth: region.width > 0 ? region.width / Math.max(region.normalizedWidth, 0.0001) : 1,
-    pageHeight: region.height > 0 ? region.height / Math.max(region.normalizedHeight, 0.0001) : 1,
+    normalizedHeight: Math.max(MIN_HIGHLIGHT_HEIGHT, region.normalizedHeight),
+    ...pageSize(region),
+  });
+}
+
+interface LayoutItem {
+  key: string;
+  text: string;
+  region: AnswerRegion;
+}
+
+function layoutBandsOnPage(items: LayoutItem[]): Map<string, { top: number; bottom: number }> {
+  const sorted = [...items].sort((left, right) => left.region.normalizedY - right.region.normalizedY);
+  const bands = new Map<string, { top: number; bottom: number }>();
+  let cursor = 0;
+
+  for (let index = 0; index < sorted.length; index += 1) {
+    const item = sorted[index];
+    const needed = Math.max(estimatedContentHeight(item.text), MIN_HIGHLIGHT_HEIGHT);
+    const geminiTop = item.region.normalizedY;
+    let top = geminiTop;
+    if (geminiTop < cursor - 0.004 || geminiTop <= cursor + 0.02) {
+      top = Math.max(geminiTop, cursor);
+    }
+
+    let bottom = top + needed;
+    const nextTop = sorted[index + 1]?.region.normalizedY;
+    if (nextTop !== undefined && nextTop > top + PACKED_GAP) {
+      bottom = Math.min(bottom, nextTop - PACKED_GAP);
+    }
+    bottom = Math.max(bottom, top + MIN_HIGHLIGHT_HEIGHT);
+    bands.set(item.key, { top, bottom });
+    cursor = bottom + PACKED_GAP;
+  }
+
+  return bands;
+}
+
+export function clipHighlightToNeighbors(
+  region: AnswerRegion,
+  neighbors: AnswerRegion[],
+  answerText = "",
+): AnswerRegion {
+  const items: LayoutItem[] = [
+    { key: "self", text: answerText, region },
+    ...neighbors.map((neighbor, index) => ({ key: `n${index}`, text: "", region: neighbor })),
+  ];
+  const band = layoutBandsOnPage(items).get("self");
+  if (!band) return region;
+  return fromNormalizedFractions({
+    page: region.page,
+    normalizedX: region.normalizedX,
+    normalizedY: band.top,
+    normalizedWidth: region.normalizedWidth,
+    normalizedHeight: Math.max(MIN_HIGHLIGHT_HEIGHT, band.bottom - band.top),
+    ...pageSize(region),
   });
 }
 
 export function highlightFromAnswer(
-  answer: { regions: AnswerRegion[] },
+  answer: { regions: AnswerRegion[]; text?: string },
   label: string,
-  neighbors: Array<{ regions: AnswerRegion[] }> = [],
+  neighbors: Array<{ regions: AnswerRegion[]; text?: string }> = [],
 ): Array<{ region: AnswerRegion; label: string }> {
-  const otherRegions = neighbors.flatMap((item) => item.regions.filter((region) => region.reliable));
   return answer.regions
+    .map((region) => {
+      const pageItems: LayoutItem[] = [
+        { key: "self", text: answer.text ?? "", region },
+        ...neighbors.flatMap((neighbor, index) =>
+          neighbor.regions
+            .filter((other) => other.page === region.page)
+            .map((other) => ({ key: `n${index}-${other.page}`, text: neighbor.text ?? "", region: other })),
+        ),
+      ];
+      const expanded = expandHighlightRegion(region);
+      const band = layoutBandsOnPage(pageItems).get("self");
+      if (!band) return expanded;
+      return fromNormalizedFractions({
+        page: expanded.page,
+        normalizedX: expanded.normalizedX,
+        normalizedY: band.top,
+        normalizedWidth: expanded.normalizedWidth,
+        normalizedHeight: Math.max(MIN_HIGHLIGHT_HEIGHT, band.bottom - band.top),
+        ...pageSize(expanded),
+      });
+    })
     .filter((region) => region.reliable)
-    .map((region) => ({ region: fitHighlightRegion(region, otherRegions), label }));
+    .map((region) => ({ region, label }));
 }

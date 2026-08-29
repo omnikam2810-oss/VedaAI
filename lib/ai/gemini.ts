@@ -60,7 +60,9 @@ async function generateOnce(model: string, parts: Array<{ text: string } | { inl
         contents: [{ role: "user", parts }],
         config: {
           temperature: 0.1,
+          maxOutputTokens: 16384,
           responseMimeType: "application/json",
+          thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
         },
       }),
       new Promise<never>((_, reject) => {
@@ -140,9 +142,9 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
       }
     }
     const lastMessage = lastError instanceof Error ? lastError.message.toLowerCase() : "";
-    const primaryMissing =
+    const modelMissing =
       lastMessage.includes("not found") || lastMessage.includes("404") || googleStatus(lastError) === 404;
-    if (!primaryMissing) break;
+    if (!modelMissing) break;
   }
 
   if (lastError instanceof AppError) throw lastError;

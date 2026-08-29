@@ -32,7 +32,6 @@ export function toAppError(error: unknown): AppError {
     status === 429 ||
     message.includes("429") ||
     message.includes("resource exhausted") ||
-    message.includes("rate") ||
     message.includes("quota")
   ) {
     return new AppError(
@@ -45,12 +44,6 @@ export function toAppError(error: unknown): AppError {
     return new AppError("AI_TIMEOUT", "Gemini took too long to read the documents. Please retry.", {
       retryable: true,
       status: 504,
-    });
-  }
-  if (status === 503 || message.includes("overloaded") || message.includes("unavailable") || message.includes("503")) {
-    return new AppError("AI_UNAVAILABLE", "Gemini is temporarily overloaded. Please wait a moment and retry.", {
-      retryable: true,
-      status: 503,
     });
   }
   if (
@@ -72,6 +65,12 @@ export function toAppError(error: unknown): AppError {
       "The configured Gemini model is not available for this API key. Set GEMINI_MODEL=gemini-3.6-flash, or use Demo Mode.",
       { retryable: false, status: 503 },
     );
+  }
+  if (status === 503 || message.includes("overloaded") || message.includes("503")) {
+    return new AppError("AI_UNAVAILABLE", "Gemini is temporarily overloaded. Please wait a moment and retry.", {
+      retryable: true,
+      status: 503,
+    });
   }
 
   if (error instanceof Error) {

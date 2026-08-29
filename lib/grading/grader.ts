@@ -5,6 +5,32 @@ import { log } from "@/lib/logging";
 import { aiGradingSchema } from "@/lib/validation/schemas";
 import type { Answer, Grade, Mapping, Question } from "@/types/assessment";
 
+function wordCount(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function minWordsForFullMarks(maxMarks: number): number {
+  if (maxMarks <= 1) return 1;
+  if (maxMarks <= 2) return 4;
+  if (maxMarks <= 3) return 8;
+  return maxMarks * 4;
+}
+
+/** Cap full marks when the writing is too thin for that mark value. */
+export function scoreFromWrittenContent(input: {
+  score: number;
+  maxMarks: number;
+  answerText: string;
+}): { score: number; correctness: Grade["correctness"] } {
+  let score = Math.max(0, Math.min(input.maxMarks, Math.round(input.score)));
+  if (score >= input.maxMarks && wordCount(input.answerText) < minWordsForFullMarks(input.maxMarks)) {
+    score = Math.max(0, input.maxMarks - 1);
+  }
+  const correctness: Grade["correctness"] =
+    score <= 0 ? "incorrect" : score >= input.maxMarks ? "correct" : "partial";
+  return { score, correctness };
+}
+
 export async function gradeMappedAnswers(
   questions: Question[],
   answers: Answer[],
@@ -27,6 +53,8 @@ export async function gradeMappedAnswers(
   log.info("Grading started", { count: pairs.length });
 
   const payload = {
+    instruction:
+      "Award marks from the written content only. Full marks only if the answer is complete enough for that mark value.",
     pairs: pairs.map(({ question, answer }) => ({
       questionNumber: question.normalizedNumber,
       questionText: question.text,
@@ -46,17 +74,30 @@ export async function gradeMappedAnswers(
 
   const grades: Grade[] = [];
   for (const pair of pairs) {
-    const grade = result.grades.find((item) => item.questionNumber === pair.question.normalizedNumber);
+    const grade = result.grades.find(
+      (item) =>
+        item.questionNumber === pair.question.normalizedNumber ||
+        item.questionNumber === pair.question.number ||
+        item.questionNumber === pair.question.displayNumber,
+    );
     const maxMarks = pair.question.maxMarks;
     if (!grade) continue;
 
     const scoreUnavailable = maxMarks === null || grade.maxMarks === null || grade.score === null;
+    const awarded = scoreUnavailable
+      ? null
+      : scoreFromWrittenContent({
+          score: grade.score ?? 0,
+          maxMarks,
+          answerText: pair.answer.text,
+        });
+
     grades.push({
       questionId: pair.question.id,
       answerId: pair.answer.id,
-      score: scoreUnavailable ? null : Math.min(grade.score ?? 0, maxMarks ?? grade.maxMarks ?? 0),
+      score: awarded?.score ?? null,
       maxMarks,
-      correctness: scoreUnavailable ? "unavailable" : grade.correctness,
+      correctness: scoreUnavailable ? "unavailable" : awarded?.correctness ?? grade.correctness,
       feedback: grade.feedback.trim(),
       confidence: grade.confidence,
       status: grade.reviewRequired || grade.confidence < HIGH_CONFIDENCE || scoreUnavailable ? "review_required" : "valid",
