@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isReliableRegion, fromNormalizedFractions, expandHighlightRegion, clipHighlightToNeighbors, highlightFromAnswer } from "@/lib/coordinates";
-import { marksPerQuestionFromFormula } from "@/lib/extraction/sectionMarks";
+import { marksPerQuestionFromFormula, parsePaperMaxMarks, computePaperMarks } from "@/lib/extraction/sectionMarks";
 import { displayQuestionNumber, extractQuestionReference, normalizeQuestionNumber } from "@/lib/extraction/numbering";
 import { validateUpload } from "@/lib/files/validate";
 import { applySemanticMatches, explicitMap, mergeContinuedAnswers, unansweredMappings, markUnmatchedAnswers } from "@/lib/mapping/answerMapper";
@@ -79,6 +79,96 @@ describe("section mark formulas", () => {
   it("rejects formulas that do not multiply to the printed total", () => {
     expect(marksPerQuestionFromFormula("5 × 4 = 21")).toBeNull();
     expect(marksPerQuestionFromFormula("80 marks")).toBeNull();
+  });
+
+  it("reads printed paper maximum marks", () => {
+    expect(parsePaperMaxMarks("M.M. 80")).toBe(80);
+    expect(parsePaperMaxMarks("Maximum Marks: 80")).toBe(80);
+    expect(parsePaperMaxMarks("Time: 3 Hours")).toBeNull();
+  });
+
+  it("uses internal-choice paper maximum 80, not the sum of every listed question", () => {
+    const demo = getDemoAssessment();
+    const questions = Array.from({ length: 14 }, (_, index) => {
+      const number = String(index + 1);
+      const maxMarks = index < 7 ? 4 : index < 11 ? 10 : 15;
+      return { ...q(`q_${number}`, number, `Question ${number}`), maxMarks };
+    });
+    const mappings: Mapping[] = questions.map((question, index) => ({
+      id: `m${index + 1}`,
+      questionId: question.id,
+      answerId: index < 4 ? `a${index + 1}` : null,
+      confidence: index < 4 ? 0.9 : 0,
+      status: index < 4 ? "mapped" : "unanswered",
+      method: index < 4 ? "explicit" : "none",
+    }));
+    const grades = questions.slice(0, 4).map((question, index) => ({
+      questionId: question.id,
+      answerId: `a${index + 1}`,
+      score: 4,
+      maxMarks: 4,
+      correctness: "correct" as const,
+      feedback: "Complete.",
+      confidence: 0.9,
+      status: "valid" as const,
+    }));
+    const paperScheme = {
+      paperMaxMarks: 80,
+      sections: [
+        { id: "a", label: "A", attemptAny: 5, marksPerQuestion: 4, sectionTotal: 20, questionIds: questions.slice(0, 7).map((item) => item.id) },
+        { id: "b", label: "B", attemptAny: 3, marksPerQuestion: 10, sectionTotal: 30, questionIds: questions.slice(7, 11).map((item) => item.id) },
+        { id: "c", label: "C", attemptAny: 2, marksPerQuestion: 15, sectionTotal: 30, questionIds: questions.slice(11).map((item) => item.id) },
+      ],
+    };
+    const result = finalizeAssessment({
+      questions,
+      answers: grades.map((grade) => a(grade.answerId, "Full answer")),
+      mappings,
+      grades,
+      paperScheme,
+      processingMetadata: demo.processingMetadata,
+    });
+    expect(result.summary.score).toBe(16);
+    expect(result.summary.maxScore).toBe(80);
+    expect(result.summary.percentage).toBe(20);
+    expect(computePaperMarks({ questions, mappings, grades, scheme: paperScheme })?.outOf).toBe(80);
+  });
+
+  it("caps a section at the number of questions the student must attempt", () => {
+    const questions = ["1", "2", "3", "4", "5", "6", "7"].map((number) => ({
+      ...q(`q_${number}`, number, `Q${number}`),
+      maxMarks: 4,
+    }));
+    const mappings: Mapping[] = questions.map((question, index) => ({
+      id: `m${index + 1}`,
+      questionId: question.id,
+      answerId: `a${index + 1}`,
+      confidence: 0.9,
+      status: "mapped",
+      method: "explicit",
+    }));
+    const grades = questions.map((question, index) => ({
+      questionId: question.id,
+      answerId: `a${index + 1}`,
+      score: 4,
+      maxMarks: 4,
+      correctness: "correct" as const,
+      feedback: "Complete.",
+      confidence: 0.9,
+      status: "valid" as const,
+    }));
+    const marks = computePaperMarks({
+      questions,
+      mappings,
+      grades,
+      scheme: {
+        paperMaxMarks: 20,
+        sections: [
+          { id: "a", attemptAny: 5, marksPerQuestion: 4, sectionTotal: 20, questionIds: questions.map((item) => item.id) },
+        ],
+      },
+    });
+    expect(marks).toEqual({ awarded: 20, outOf: 20, unansweredWithoutMarks: 0 });
   });
 });
 

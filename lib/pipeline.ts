@@ -137,6 +137,7 @@ export async function runAssessmentPipeline(
       answers: mapped.answers,
       mappings: mapped.mappings,
       grades,
+      paperScheme: extractedQuestions.paperScheme,
       processingMetadata: {
         isDemo: false,
         model: getModelName(),
@@ -149,8 +150,10 @@ export async function runAssessmentPipeline(
       },
     });
     if (aiSummary) {
-      assessment.summary.aiSummary =
-        assessment.summary.unanswered > 0
+      const hasChoice = Boolean(extractedQuestions.paperScheme?.paperMaxMarks || extractedQuestions.paperScheme?.sections.length);
+      assessment.summary.aiSummary = hasChoice
+        ? `${aiSummary} Paper total uses the printed maximum marks (internal choice). Unused optional questions are not added to that total.`
+        : assessment.summary.unanswered > 0
           ? `${aiSummary} ${assessment.summary.unanswered} unanswered question(s) were scored 0.`
           : aiSummary;
     }

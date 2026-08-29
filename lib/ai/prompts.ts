@@ -11,12 +11,24 @@ Rules:
 8. If marks are printed beside a question (e.g. [5 Marks], (3m)), extract that as maxMarks.
    Section schemes such as 5 × 4 = 20, 5x4=20, or 3 × 10 = 30 mean each question IN THAT SECTION has maxMarks equal to the per-question value (4, 10, etc.), not the section total (20, 30). Apply that value to every numbered question in the section. Never use the section total as a single question's maxMarks. Never invent marks that are not printed as a per-question value or as this kind of section formula.
 9. Internal choice notes such as "Answer any 5 questions" do not change extraction: still extract every numbered question. Unanswered optional questions are left unanswered later.
-10. page is 1-based.
-11. confidence is 0 to 1. If numbering or wording is ambiguous, lower confidence and set ambiguous=true with reviewReason.
-12. Return JSON only.
+10. If the header prints M.M. / Maximum Marks (e.g. 80), copy that exact number as paperMaxMarks. Never invent it. Never use the sum of every listed question when a printed paper maximum exists.
+11. For each section with "Answer any N" and a formula such as 5 × 4 = 20, emit a sections entry: attemptAny=5, marksPerQuestion=4, sectionTotal=20, and the question numbers in that section. The paper total is the printed M.M. or the sum of section totals (20+30+30=80), not 7×4+4×10+3×15.
+12. page is 1-based.
+13. confidence is 0 to 1. If numbering or wording is ambiguous, lower confidence and set ambiguous=true with reviewReason.
+14. Return JSON only.
 
 JSON shape:
 {
+  "paperMaxMarks": 80,
+  "sections": [
+    {
+      "label": "A",
+      "attemptAny": 5,
+      "marksPerQuestion": 4,
+      "sectionTotal": 20,
+      "questionNumbers": ["1", "2", "3", "4", "5", "6", "7"]
+    }
+  ],
   "questions": [
     {
       "number": "13(a)",

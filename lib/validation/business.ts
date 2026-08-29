@@ -1,5 +1,6 @@
 import { expandHighlightRegion, fromNormalizedFractions } from "@/lib/coordinates";
 import { HIGH_CONFIDENCE } from "@/lib/constants";
+import { computePaperMarks } from "@/lib/extraction/sectionMarks";
 import { uniqueId } from "@/lib/utils";
 import type {
   Answer,
@@ -8,6 +9,7 @@ import type {
   DocumentMeta,
   Grade,
   Mapping,
+  PaperScheme,
   Question,
 } from "@/types/assessment";
 
@@ -120,6 +122,7 @@ export function buildSummary(
   answers: Answer[],
   mappings: Mapping[],
   grades: Grade[],
+  paperScheme?: PaperScheme | null,
 ): AssessmentSummary {
   const unanswered = mappings.filter((mapping) => mapping.status === "unanswered").length;
   const reviewIds = new Set<string>();
@@ -138,36 +141,11 @@ export function buildSummary(
   const unmatchedAnswers = answers.filter((answer) => answer.status === "unmatched").length;
   const conflicts = mappings.filter((mapping) => mapping.status === "conflict").length;
 
-  const mappingByQuestion = new Map(mappings.map((mapping) => [mapping.questionId, mapping]));
-  const gradeByQuestion = new Map(grades.map((grade) => [grade.questionId, grade]));
-  const hasNumericGrade = grades.some(
-    (grade) => grade.score !== null && grade.maxMarks !== null && grade.status === "valid",
-  );
-
-  let awarded = 0;
-  let outOf = 0;
-  let unansweredWithoutMarks = 0;
-
-  for (const question of questions) {
-    const mapping = mappingByQuestion.get(question.id);
-    const unanswered = !mapping || mapping.status === "unanswered" || !mapping.answerId;
-    const grade = gradeByQuestion.get(question.id);
-    const maxMarks = question.maxMarks ?? grade?.maxMarks ?? null;
-    if (maxMarks === null) {
-      if (unanswered) unansweredWithoutMarks += 1;
-      continue;
-    }
-    outOf += maxMarks;
-    if (unanswered) continue;
-    if (grade && grade.score !== null && grade.status === "valid") {
-      awarded += grade.score;
-    }
-  }
-
-  const canShowPaperTotal = hasNumericGrade && outOf > 0;
+  const paperMarks = computePaperMarks({ questions, mappings, grades, scheme: paperScheme });
+  const canShowPaperTotal = paperMarks !== null;
   const percentage =
-    canShowPaperTotal && unansweredWithoutMarks === 0
-      ? Math.round((awarded / outOf) * 1000) / 10
+    canShowPaperTotal && paperMarks.unansweredWithoutMarks === 0
+      ? Math.round((paperMarks.awarded / paperMarks.outOf) * 1000) / 10
       : null;
 
   return {
@@ -177,8 +155,8 @@ export function buildSummary(
     reviewRequired,
     unmappedAnswers: unmatchedAnswers,
     conflicts,
-    score: canShowPaperTotal ? awarded : null,
-    maxScore: canShowPaperTotal ? outOf : null,
+    score: canShowPaperTotal ? paperMarks.awarded : null,
+    maxScore: canShowPaperTotal ? paperMarks.outOf : null,
     percentage,
   };
 }
@@ -220,7 +198,8 @@ export function finalizeAssessment(result: Omit<AssessmentResult, "summary" | "u
     answers,
     mappings,
     unmatchedAnswers: answers.filter((answer) => answer.status === "unmatched"),
-    summary: buildSummary(result.questions, answers, mappings, result.grades),
+    paperScheme: result.paperScheme ?? null,
+    summary: buildSummary(result.questions, answers, mappings, result.grades, result.paperScheme),
   };
 }
 

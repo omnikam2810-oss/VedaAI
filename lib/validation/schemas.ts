@@ -12,7 +12,17 @@ export const aiQuestionSchema = z.object({
   reviewReason: z.string().optional(),
 });
 
+export const aiPaperSectionSchema = z.object({
+  label: z.string().optional(),
+  attemptAny: z.number().int().positive(),
+  marksPerQuestion: z.number().positive(),
+  sectionTotal: z.number().positive(),
+  questionNumbers: z.array(z.string().min(1)).min(1),
+});
+
 export const aiQuestionExtractionSchema = z.object({
+  paperMaxMarks: z.number().positive().nullable().optional(),
+  sections: z.array(aiPaperSectionSchema).optional(),
   questions: z.array(aiQuestionSchema),
   warnings: z.array(z.string()).optional(),
 });

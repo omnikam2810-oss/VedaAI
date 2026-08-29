@@ -48,6 +48,20 @@ export interface DocumentMeta {
   pages: PageInfo[];
 }
 
+export interface PaperSection {
+  id: string;
+  label?: string;
+  attemptAny: number;
+  marksPerQuestion: number;
+  sectionTotal: number;
+  questionIds: string[];
+}
+
+export interface PaperScheme {
+  paperMaxMarks: number | null;
+  sections: PaperSection[];
+}
+
 export interface Question {
   id: string;
   number: string;
@@ -138,6 +152,7 @@ export interface AssessmentResult {
   unmatchedAnswers: Answer[];
   grades: Grade[];
   summary: AssessmentSummary;
+  paperScheme?: PaperScheme | null;
   processingMetadata: ProcessingMetadata;
 }
 

@@ -240,7 +240,11 @@ export function AssessmentSummary({ result }: { result: AssessmentResult }) {
             Overall marks {summary.score} / {summary.maxScore}
             {summary.percentage !== null ? ` · ${summary.percentage}%` : ""}
           </p>
-          {summary.unanswered > 0 ? (
+          {result.paperScheme?.paperMaxMarks || result.paperScheme?.sections.length ? (
+            <p className="mt-1 text-xs text-[#666]">
+              Total marks are the printed paper maximum (internal choice). Unused optional questions are not added to that total.
+            </p>
+          ) : summary.unanswered > 0 ? (
             <p className="mt-1 text-xs text-[#666]">Unanswered questions are scored 0 and included in the total.</p>
           ) : null}
         </>
