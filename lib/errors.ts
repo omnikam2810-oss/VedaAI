@@ -59,6 +59,13 @@ export function toAppError(error: unknown): AppError {
       { retryable: false, status: 503 },
     );
   }
+  if (status === 400 || message.includes("invalid argument") || message.includes("thinking")) {
+    return new AppError(
+      "AI_UNAVAILABLE",
+      "Gemini rejected this request. Try Demo Mode, or set GEMINI_MODEL=gemini-flash-latest in .env.",
+      { retryable: true, status: 502 },
+    );
+  }
   if (status === 404 || message.includes("not found") || message.includes("404")) {
     return new AppError(
       "AI_UNAVAILABLE",

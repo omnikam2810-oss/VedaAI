@@ -62,7 +62,6 @@ async function generateOnce(model: string, parts: Array<{ text: string } | { inl
           temperature: 0.1,
           maxOutputTokens: 16384,
           responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
         },
       }),
       new Promise<never>((_, reject) => {
@@ -125,7 +124,10 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
         const unavailable =
           message.includes("not found") ||
           message.includes("404") ||
-          googleStatus(error) === 404;
+          googleStatus(error) === 404 ||
+          googleStatus(error) === 400 ||
+          message.includes("invalid argument") ||
+          message.includes("400");
         const overloaded = googleStatus(error) === 503 || message.includes("overloaded");
         const timedOut = error instanceof AppError && error.code === "AI_TIMEOUT";
         if (unavailable) break;
@@ -142,9 +144,14 @@ export async function generateValidatedJson<T>(args: GenerateJsonArgs<T>): Promi
       }
     }
     const lastMessage = lastError instanceof Error ? lastError.message.toLowerCase() : "";
-    const modelMissing =
-      lastMessage.includes("not found") || lastMessage.includes("404") || googleStatus(lastError) === 404;
-    if (!modelMissing) break;
+    const tryNextModel =
+      lastMessage.includes("not found") ||
+      lastMessage.includes("404") ||
+      lastMessage.includes("invalid argument") ||
+      lastMessage.includes("400") ||
+      googleStatus(lastError) === 404 ||
+      googleStatus(lastError) === 400;
+    if (!tryNextModel) break;
   }
 
   if (lastError instanceof AppError) throw lastError;
