@@ -138,20 +138,37 @@ export function buildSummary(
   const unmatchedAnswers = answers.filter((answer) => answer.status === "unmatched").length;
   const conflicts = mappings.filter((mapping) => mapping.status === "conflict").length;
 
-  const usableGrades = grades.filter(
+  const mappingByQuestion = new Map(mappings.map((mapping) => [mapping.questionId, mapping]));
+  const gradeByQuestion = new Map(grades.map((grade) => [grade.questionId, grade]));
+  const hasNumericGrade = grades.some(
     (grade) => grade.score !== null && grade.maxMarks !== null && grade.status === "valid",
   );
-  const score = usableGrades.length
-    ? usableGrades.reduce((sum, grade) => sum + (grade.score ?? 0), 0)
-    : null;
-  const maxScore = usableGrades.length
-    ? usableGrades.reduce((sum, grade) => sum + (grade.maxMarks ?? 0), 0)
-    : null;
-  const allMappedHaveMarks =
-    mappedQuestionIds.size > 0 &&
-    [...mappedQuestionIds].every((questionId) =>
-      usableGrades.some((grade) => grade.questionId === questionId),
-    );
+
+  let awarded = 0;
+  let outOf = 0;
+  let unansweredWithoutMarks = 0;
+
+  for (const question of questions) {
+    const mapping = mappingByQuestion.get(question.id);
+    const unanswered = !mapping || mapping.status === "unanswered" || !mapping.answerId;
+    const grade = gradeByQuestion.get(question.id);
+    const maxMarks = question.maxMarks ?? grade?.maxMarks ?? null;
+    if (maxMarks === null) {
+      if (unanswered) unansweredWithoutMarks += 1;
+      continue;
+    }
+    outOf += maxMarks;
+    if (unanswered) continue;
+    if (grade && grade.score !== null && grade.status === "valid") {
+      awarded += grade.score;
+    }
+  }
+
+  const canShowPaperTotal = hasNumericGrade && outOf > 0;
+  const percentage =
+    canShowPaperTotal && unansweredWithoutMarks === 0
+      ? Math.round((awarded / outOf) * 1000) / 10
+      : null;
 
   return {
     totalQuestions: questions.length,
@@ -160,12 +177,9 @@ export function buildSummary(
     reviewRequired,
     unmappedAnswers: unmatchedAnswers,
     conflicts,
-    score: allMappedHaveMarks ? score : null,
-    maxScore: allMappedHaveMarks ? maxScore : null,
-    percentage:
-      allMappedHaveMarks && score !== null && maxScore
-        ? Math.round((score / maxScore) * 1000) / 10
-        : null,
+    score: canShowPaperTotal ? awarded : null,
+    maxScore: canShowPaperTotal ? outOf : null,
+    percentage,
   };
 }
 

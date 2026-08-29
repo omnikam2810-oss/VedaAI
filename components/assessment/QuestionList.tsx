@@ -225,12 +225,27 @@ export function AssessmentSummary({ result }: { result: AssessmentResult }) {
         ))}
       </dl>
       {summary.score !== null && summary.maxScore !== null ? (
-        <p className="mt-3 text-sm font-semibold">
-          Score {summary.score} / {summary.maxScore}
-          {summary.percentage !== null ? ` · ${summary.percentage}%` : ""}
-        </p>
+        <>
+          <dl className="mt-2 grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-xl bg-white px-3 py-2">
+              <dt className="text-[11px] text-[#888]">Marks obtained</dt>
+              <dd className="font-semibold">{summary.score}</dd>
+            </div>
+            <div className="rounded-xl bg-white px-3 py-2">
+              <dt className="text-[11px] text-[#888]">Total marks</dt>
+              <dd className="font-semibold">{summary.maxScore}</dd>
+            </div>
+          </dl>
+          <p className="mt-3 text-sm font-semibold">
+            Overall marks {summary.score} / {summary.maxScore}
+            {summary.percentage !== null ? ` · ${summary.percentage}%` : ""}
+          </p>
+          {summary.unanswered > 0 ? (
+            <p className="mt-1 text-xs text-[#666]">Unanswered questions are scored 0 and included in the total.</p>
+          ) : null}
+        </>
       ) : (
-        <p className="mt-3 text-xs text-[#888]">Overall score unavailable until marks can be determined reliably.</p>
+        <p className="mt-3 text-xs text-[#888]">Overall marks unavailable until printed marks can be determined reliably.</p>
       )}
       {summary.aiSummary ? <p className="mt-2 text-sm text-[#444]">{summary.aiSummary}</p> : null}
       <p className="mt-2 text-[11px] text-[#888]">AI-generated assessment · Teacher review recommended</p>

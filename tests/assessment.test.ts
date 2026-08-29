@@ -490,4 +490,41 @@ describe("finalization", () => {
     expect(result.summary.reviewRequired).toBe(0);
     expect(result.summary.unmappedAnswers).toBe(1);
   });
+
+  it("counts unanswered questions as zero in the paper total", () => {
+    const demo = getDemoAssessment();
+    const questions = Array.from({ length: 14 }, (_, index) =>
+      q(`q_${index + 1}`, String(index + 1), `Question ${index + 1}`),
+    ).map((question) => ({ ...question, maxMarks: 4 }));
+    const mappings: Mapping[] = questions.map((question, index) => ({
+      id: `m${index + 1}`,
+      questionId: question.id,
+      answerId: index < 4 ? `a${index + 1}` : null,
+      confidence: index < 4 ? 0.9 : 0,
+      status: index < 4 ? "mapped" : "unanswered",
+      method: index < 4 ? "explicit" : "none",
+    }));
+    const grades = questions.slice(0, 4).map((question, index) => ({
+      questionId: question.id,
+      answerId: `a${index + 1}`,
+      score: 4,
+      maxMarks: 4,
+      correctness: "correct" as const,
+      feedback: "Complete.",
+      confidence: 0.9,
+      status: "valid" as const,
+    }));
+    const result = finalizeAssessment({
+      questions,
+      answers: grades.map((grade) => a(grade.answerId, "Full answer")),
+      mappings,
+      grades,
+      processingMetadata: demo.processingMetadata,
+    });
+    expect(result.summary.answered).toBe(4);
+    expect(result.summary.unanswered).toBe(10);
+    expect(result.summary.score).toBe(16);
+    expect(result.summary.maxScore).toBe(56);
+    expect(result.summary.percentage).toBe(28.6);
+  });
 });

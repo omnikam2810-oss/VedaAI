@@ -149,7 +149,10 @@ export async function runAssessmentPipeline(
       },
     });
     if (aiSummary) {
-      assessment.summary.aiSummary = aiSummary;
+      assessment.summary.aiSummary =
+        assessment.summary.unanswered > 0
+          ? `${aiSummary} ${assessment.summary.unanswered} unanswered question(s) were scored 0.`
+          : aiSummary;
     }
 
     steps = setStep(steps, "assessment", "completed", "Completed");

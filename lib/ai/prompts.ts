@@ -109,6 +109,7 @@ Rules:
 6. Be conservative. If handwriting is unclear, lower confidence, set reviewRequired=true, and do not award a high score by guessing.
 7. Feedback must be short, specific, and based only on the student text. If marks were reduced, say what was missing.
 8. This is AI-assisted, not an official mark. Do not claim certainty.
+9. The "summary" is only about the mapped answers you graded. Never say the student scored 100% or completed the paper if you were not given every question. Unanswered questions are scored 0 in the app.
 9. Return JSON only.
 
 JSON shape:
